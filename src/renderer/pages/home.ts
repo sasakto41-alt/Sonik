@@ -1,14 +1,21 @@
-import { h, clear, el, fmtTime, emptyState, spinner } from '../ui';
+import { h, clear, fmtTime, emptyState, spinner, toast } from '../ui';
 import { ICONS, icon } from '../icons';
 import { api, mediaUrl, isElectron } from '../api';
 import { Track, VideoItem, HistoryEntry } from '../../shared/types';
 import { navigate } from '../main';
 import { snapshotListener } from '../components';
+import { createQuickSection, loadQuickData, QuickSection } from './quick';
 
 /**
- * Главная: приветствие, быстрые действия, недавние треки/видео, избранное.
+ * Главный экран.
+ * - в приложении (компьютер): дашборд — плитки быстрого доступа прямо здесь,
+ *   приветствие, недавние треки/видео; плеер всегда виден внизу окна,
+ *   поэтому работать можно с одного экрана, без переходов по разделам;
+ * - в браузере (телефон): приветствие и недавний контент.
  */
-export function mountHome(container: HTMLElement): void {
+export function mountHome(container: HTMLElement): { teardown?: () => void } | void {
+  if (isElectron()) return mountDesktopHome(container);
+
   clear(container);
   container.append(spinner());
 
@@ -21,9 +28,8 @@ export function mountHome(container: HTMLElement): void {
 
     const hero = h('div', { class: 'home-hero' },
       h('div', { class: 'home-greeting' }, greeting + '!'),
-      h('div', { class: 'home-sub' }, s.system.electron
-        ? 'Музыкальный центр, видео и сценический вывод — всё в одном месте.'
-        : 'Вы подключены с удалённого устройства. Управляйте воспроизведением на компьютере.'));
+      h('div', { class: 'home-sub' },
+        'Вы подключены с удалённого устройства. Управляйте воспроизведением на компьютере.'));
 
     const quick = h('div', { class: 'quick-actions' });
     const actions: Array<{ label: string; icon: string; onClick: () => void }> = [
@@ -31,10 +37,6 @@ export function mountHome(container: HTMLElement): void {
       { label: 'Soundboard', icon: 'soundboard', onClick: () => navigate('soundboard') },
       { label: 'Визуализация', icon: 'visualizer', onClick: () => navigate('visualizer') }
     ];
-    if (isElectron()) {
-      actions.unshift({ label: 'Импорт музыки', icon: 'folderPlus', onClick: () => navigate('music') });
-      actions.splice(1, 0, { label: 'Импорт видео', icon: 'video', onClick: () => navigate('videos') });
-    }
     for (const a of actions) {
       quick.append(h('button', { class: 'quick-card', onclick: a.onClick },
         h('span', { class: 'quick-icon', html: icon(a.icon) }),
@@ -77,14 +79,116 @@ export function mountHome(container: HTMLElement): void {
       // Пустая библиотека
       if (tracksResp.tracks.length === 0) {
         container.append(emptyState(ICONS.music, 'Библиотека музыки пуста',
-          'Импортируйте файлы или папки в разделе «Музыка».',
+          'Импортируйте файлы или папки в приложении на компьютере.',
+          { label: 'Перейти к музыке', onClick: () => navigate('music') }));
+      }
+    } catch { /* ошибки сети уже показаны */ }
+  });
+
+  return { teardown: () => off() };
+}
+
+/** Главный экран в приложении: дашборд с плитками + приветственный контент. */
+function mountDesktopHome(container: HTMLElement): { teardown: () => void } {
+  clear(container);
+  container.append(spinner());
+
+  const sections: QuickSection[] = [];
+  let disposed = false;
+
+  async function enableQuick(): Promise<void> {
+    try {
+      await api.put('/api/quick', { enabled: true });
+      toast('success', 'Быстрый доступ включён');
+      navigate('home'); // перерисовать главный экран с плитками
+    } catch { /* тост из api */ }
+  }
+
+  const off = snapshotListener(async (s) => {
+    off();
+    if (disposed) return;
+    clear(container);
+
+    const hour = new Date().getHours();
+    const greeting = hour < 5 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
+
+    const hero = h('div', { class: 'home-hero' },
+      h('div', { class: 'home-greeting' }, greeting + '!'),
+      h('div', { class: 'home-sub' },
+        'Всё управление на одном экране: плитки ниже, а название трека, плей/пауза и громкость — в панели плеера внизу окна.'));
+
+    container.append(hero);
+
+    // ─── Блок быстрого доступа (плитки) ───
+    try {
+      const data = await loadQuickData();
+      if (disposed) return;
+      if (data.config.enabled) {
+        const sec = createQuickSection(data.config, {
+          tracks: data.tracks, playlists: data.playlists, sounds: data.sounds
+        });
+        sections.push(sec);
+        container.append(sec.root);
+      } else {
+        container.append(h('div', { class: 'card dash-enable' },
+          h('div', {},
+            h('div', { class: 'card-title' }, 'Быстрый доступ выключен'),
+            h('div', { class: 'muted' },
+              'Включите плитки — и соберите свои действия, треки, плейлисты, звуки и команды прямо на главном экране, без переходов по разделам.')),
+          h('button', { class: 'btn accent', onclick: () => void enableQuick() }, 'Включить')));
+      }
+    } catch {
+      container.append(h('div', { class: 'card' },
+        h('div', { class: 'muted' }, 'Не удалось загрузить конфигурацию быстрого доступа.')));
+    }
+
+    // ─── Быстрые действия (импорт и разделы) ───
+    const quick = h('div', { class: 'quick-actions' });
+    const actions: Array<{ label: string; icon: string; onClick: () => void }> = [
+      { label: 'Сценический вывод', icon: 'stage', onClick: () => navigate('stage') },
+      { label: 'Soundboard', icon: 'soundboard', onClick: () => navigate('soundboard') },
+      { label: 'Визуализация', icon: 'visualizer', onClick: () => navigate('visualizer') },
+      { label: 'Импорт музыки', icon: 'folderPlus', onClick: () => navigate('music') },
+      { label: 'Импорт видео', icon: 'video', onClick: () => navigate('videos') }
+    ];
+    for (const a of actions) {
+      quick.append(h('button', { class: 'quick-card', onclick: a.onClick },
+        h('span', { class: 'quick-icon', html: icon(a.icon) }),
+        h('span', { class: 'quick-label' }, a.label)));
+    }
+    container.append(quick);
+
+    // ─── Недавно прослушанные и избранное ───
+    try {
+      const hist = await api.get<{ items: HistoryEntry[] }>('/api/music/history');
+      const tracksResp = await api.get<{ tracks: Track[] }>('/api/music/tracks');
+      if (disposed) return;
+      const byId = new Map(tracksResp.tracks.map(t => [t.id, t]));
+      const recent = hist.items.slice(0, 6).map(x => byId.get(x.id)).filter((t): t is Track => Boolean(t));
+      if (recent.length > 0) {
+        container.append(sectionTitle('Недавно прослушано', 'music'));
+        const row = h('div', { class: 'card-grid' });
+        for (const t of recent) row.append(trackCard(t));
+        container.append(row);
+      }
+      const fav = tracksResp.tracks.filter(t => t.favorite).slice(0, 6);
+      if (fav.length > 0) {
+        container.append(sectionTitle('Избранное', 'music'));
+        const row = h('div', { class: 'card-grid' });
+        for (const t of fav) row.append(trackCard(t));
+        container.append(row);
+      }
+      if (tracksResp.tracks.length === 0) {
+        container.append(emptyState(ICONS.music, 'Библиотека музыки пуста',
+          'Импортируйте файлы или папки, затем добавьте любимые треки плитками на главный экран.',
           { label: 'Перейти к музыке', onClick: () => navigate('music') }));
       }
     } catch { /* ошибки сети уже показаны */ }
 
-    // Недавние видео
+    // ─── Недавние видео ───
     try {
       const videos = await api.get<{ videos: VideoItem[] }>('/api/videos');
+      if (disposed) return;
       const recentVideos = [...videos.videos]
         .filter(v => v.lastPlayedAt)
         .sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0))
@@ -96,7 +200,27 @@ export function mountHome(container: HTMLElement): void {
         container.append(row);
       }
     } catch { /* ignore */ }
+
+    // ─── Сервер и доступ ───
+    const serverCard = h('div', { class: 'card server-card' },
+      h('div', { class: 'card-title' }, 'Сервер и доступ'),
+      h('div', { class: 'server-row' },
+        h('span', { class: 'muted' }, 'Локальный адрес:'),
+        h('code', { class: 'addr' }, s.system.url)),
+      h('div', { class: 'server-row' },
+        h('span', { class: 'muted' }, 'Сеть:'),
+        h('span', {}, s.system.lanEnabled ? `включена — ${s.system.lanUrl}` : 'только этот компьютер'),
+        h('button', { class: 'btn ghost small', onclick: () => navigate('settings') }, 'Настроить')));
+    container.append(serverCard);
   });
+
+  return {
+    teardown: () => {
+      disposed = true;
+      off();
+      for (const sec of sections) sec.teardown();
+    }
+  };
 }
 
 export function sectionTitle(title: string, ic = 'music'): HTMLElement {

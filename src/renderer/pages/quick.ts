@@ -1,18 +1,21 @@
-import { h, clear, toast, confirmDialog, modal, spinner, emptyState } from '../ui';
+import { h, clear, toast, confirmDialog, modal, spinner } from '../ui';
 import { ICONS, icon } from '../icons';
-import { api, mediaUrl, isElectron } from '../api';
+import { api, mediaUrl } from '../api';
 import { QuickConfig, QuickTile, QuickTileSize, Track, Playlist, SoundButton, SoundboardConfig } from '../../shared/types';
 import { navigate } from '../main';
 import { player } from '../player';
 
 /**
- * Быстрый режим: настраиваемая сетка плиток.
+ * Блок «Быстрый доступ» на главном экране (дашборд).
+ * Отдельного раздела больше нет: плитки живут прямо на «Главной»,
+ * поэтому всё управление — с одного экрана, без переходов по меню.
  * - добавляйте действия плеера, треки, плейлисты, звуки Soundboard и разделы;
  * - перетаскивайте плитки мышью (режим правки), меняйте размер S → M → L;
- * - конфигурация сохраняется на сервере и переживает перезапуск.
+ * - конфигурация сохраняется на сервере и переживает перезапуск;
+ * - название трека, плей/пауза и громкость — в панели плеера внизу окна.
  */
 
-interface LibData {
+export interface LibData {
   tracks: Map<string, Track>;
   playlists: Map<string, Playlist>;
   sounds: Map<string, SoundButton>;
@@ -48,49 +51,56 @@ const SECTION_META: Record<string, { label: string; icon: string }> = {
 const SIZE_ORDER: QuickTileSize[] = ['s', 'm', 'l'];
 const SIZE_LABEL: Record<QuickTileSize, string> = { s: 'S', m: 'M', l: 'L' };
 
-export function mountQuick(container: HTMLElement): { teardown: () => void } {
-  clear(container);
-  container.append(spinner());
+/** Конфигурация плиток + библиотека (треки/плейлисты/звуки) одним запросом набора. */
+export async function loadQuickData(): Promise<{ config: QuickConfig } & LibData> {
+  const [t, p, s, q] = await Promise.all([
+    api.get<{ tracks: Track[] }>('/api/music/tracks'),
+    api.get<{ playlists: Playlist[] }>('/api/playlists'),
+    api.get<{ config: SoundboardConfig }>('/api/soundboard'),
+    api.get<{ config: QuickConfig }>('/api/quick')
+  ]);
+  return {
+    config: q.config,
+    tracks: new Map(t.tracks.map(x => [x.id, x])),
+    playlists: new Map(p.playlists.map(x => [x.id, x])),
+    sounds: new Map(s.config.buttons.map(x => [x.id, x]))
+  };
+}
 
-  const lib: LibData = { tracks: new Map(), playlists: new Map(), sounds: new Map() };
-  let config: QuickConfig | null = null;
+export interface QuickSection {
+  root: HTMLElement;
+  teardown: () => void;
+}
+
+/**
+ * Создаёт блок плиток для главного экрана.
+ * config мутируется при правке (размер/порядок/состав) и сохраняется на сервере.
+ */
+export function createQuickSection(config: QuickConfig, lib: LibData): QuickSection {
+  const root = h('section', { class: 'quick-section' });
+  let cfg: QuickConfig = config;
   let editMode = false;
   let dragId: string | null = null;
   let disposed = false;
 
-  // Живое обновление плитки Плей/Пауза
+  // Живое обновление плиток Плей/Пауза, Повтор, Перемешивание
   const offState = player.on('state', () => {
     if (disposed) return;
-    if (!config || !config.enabled) return;
-    container.querySelectorAll<HTMLElement>('[data-action="playPause"] .qtile-icon').forEach(elm => {
+    root.querySelectorAll<HTMLElement>('[data-action="playPause"] .qtile-icon').forEach(elm => {
       elm.innerHTML = player.state.status === 'playing' ? ICONS.pause : ICONS.play;
     });
-    container.querySelectorAll<HTMLElement>('[data-action="repeat"]').forEach(elm => {
+    root.querySelectorAll<HTMLElement>('[data-action="repeat"]').forEach(elm => {
       elm.classList.toggle('active', player.state.repeat !== 'off');
     });
-    container.querySelectorAll<HTMLElement>('[data-action="shuffle"]').forEach(elm => {
+    root.querySelectorAll<HTMLElement>('[data-action="shuffle"]').forEach(elm => {
       elm.classList.toggle('active', player.state.shuffle);
     });
   });
 
-  async function loadLib(): Promise<void> {
-    try {
-      const [t, p, s] = await Promise.all([
-        api.get<{ tracks: Track[] }>('/api/music/tracks'),
-        api.get<{ playlists: Playlist[] }>('/api/playlists'),
-        api.get<{ config: SoundboardConfig }>('/api/soundboard')
-      ]);
-      lib.tracks = new Map(t.tracks.map(x => [x.id, x]));
-      lib.playlists = new Map(p.playlists.map(x => [x.id, x]));
-      lib.sounds = new Map(s.config.buttons.map(x => [x.id, x]));
-    } catch { /* страница покажет доступное из tile.label */ }
-  }
-
   async function persist(): Promise<void> {
-    if (!config) return;
     try {
-      const r = await api.put<{ config: QuickConfig }>('/api/quick', { enabled: config.enabled, tiles: config.tiles });
-      config = r.config;
+      const r = await api.put<{ config: QuickConfig }>('/api/quick', { enabled: cfg.enabled, tiles: cfg.tiles });
+      cfg = r.config;
     } catch { /* тост из api */ }
   }
 
@@ -221,9 +231,9 @@ export function mountQuick(container: HTMLElement): { teardown: () => void } {
         class: 'qtile-remove', title: 'Убрать плитку', html: ICONS.close,
         onclick: async (e) => {
           e.stopPropagation();
-          const ok = await confirmDialog('Убрать плитку', `Убрать «${tileLabel(t)}» из быстрого режима?`, 'Убрать');
+          const ok = await confirmDialog('Убрать плитку', `Убрать «${tileLabel(t)}» из быстрого доступа?`, 'Убрать');
           if (!ok) return;
-          config!.tiles = config!.tiles.filter(x => x.id !== t.id);
+          cfg.tiles = cfg.tiles.filter(x => x.id !== t.id);
           await persist();
           renderGrid();
         }
@@ -250,12 +260,12 @@ export function mountQuick(container: HTMLElement): { teardown: () => void } {
     box.addEventListener('drop', (e) => {
       e.preventDefault();
       box.classList.remove('drag-over');
-      if (!editMode || !dragId || dragId === t.id || !config) return;
-      const from = config.tiles.findIndex(x => x.id === dragId);
-      const to = config.tiles.findIndex(x => x.id === t.id);
+      if (!editMode || !dragId || dragId === t.id) return;
+      const from = cfg.tiles.findIndex(x => x.id === dragId);
+      const to = cfg.tiles.findIndex(x => x.id === t.id);
       if (from < 0 || to < 0) return;
-      const [moved] = config.tiles.splice(from, 1);
-      config.tiles.splice(to, 0, moved);
+      const [moved] = cfg.tiles.splice(from, 1);
+      cfg.tiles.splice(to, 0, moved);
       dragId = null;
       void persist();
       renderGrid();
@@ -264,24 +274,23 @@ export function mountQuick(container: HTMLElement): { teardown: () => void } {
     return box;
   }
 
-  // ─── Сетка и шапка ───
+  // ─── Сетка и шапка блока ───
 
   const grid = h('div', { class: 'quick-grid' });
 
   function renderGrid(): void {
     clear(grid);
-    if (!config) return;
-    for (const t of config.tiles) grid.append(tileEl(t));
-    if (config.tiles.length === 0) {
+    for (const t of cfg.tiles) grid.append(tileEl(t));
+    if (cfg.tiles.length === 0) {
       grid.append(h('div', { class: 'quick-empty-note' },
         'Сетка пуста. Нажмите «Добавить», чтобы разместить действия, треки, плейлисты, звуки и разделы.'));
     }
   }
 
   function renderShell(): void {
-    clear(container);
+    clear(root);
     const head = h('div', { class: 'page-head' },
-      h('h2', { class: 'page-title' }, 'Быстрый режим'),
+      h('h2', { class: 'page-title' }, 'Быстрый доступ'),
       h('div', { class: 'btn-row' },
         h('button', {
           class: 'btn accent',
@@ -296,29 +305,9 @@ export function mountQuick(container: HTMLElement): { teardown: () => void } {
     const hint = h('div', { class: 'muted note' },
       editMode
         ? 'Режим правки: перетаскивайте плитки мышью, кнопка S/M/L меняет размер, крестик убирает плитку.'
-        : 'Нажмите плитку, чтобы выполнить действие. Настройте состав и порядок в режиме правки.');
-    container.append(head, hint, grid);
+        : 'Нажмите плитку, чтобы выполнить действие. Управление плеером — в панели внизу окна.');
+    root.append(head, hint, grid);
     renderGrid();
-  }
-
-  function ensureEnabled(): void {
-    if (!config) return;
-    if (config.enabled) { renderShell(); return; }
-    clear(container);
-    container.append(emptyState(icon('check'),
-      'Быстрый режим выключен',
-      'Включите его, чтобы собрать собственную сетку: действия плеера, треки, плейлисты, звуки Soundboard и разделы приложения.',
-      {
-        label: 'Включить быстрый режим',
-        onClick: async () => {
-          try {
-            const r = await api.put<{ config: QuickConfig }>('/api/quick', { enabled: true });
-            config = r.config;
-            toast('success', 'Быстрый режим включён');
-            renderShell();
-          } catch { /* тост из api */ }
-        }
-      }));
   }
 
   // ─── Панель добавления ───
@@ -339,9 +328,8 @@ export function mountQuick(container: HTMLElement): { teardown: () => void } {
       let activeTab = 'actions';
 
       const add = async (tile: Omit<QuickTile, 'id'>, name: string) => {
-        if (!config) return;
-        if (config.tiles.length >= 64) { toast('error', 'Достигнут предел — 64 плитки'); return; }
-        config.tiles.push({ ...tile, id: 'q-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) });
+        if (cfg.tiles.length >= 64) { toast('error', 'Достигнут предел — 64 плитки'); return; }
+        cfg.tiles.push({ ...tile, id: 'q-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) });
         await persist();
         renderGrid();
         toast('success', `Добавлено: ${name}`);
@@ -444,29 +432,18 @@ export function mountQuick(container: HTMLElement): { teardown: () => void } {
     }, { wide: true });
   }
 
-  // ─── Инициализация ───
-
-  void (async () => {
-    try {
-      const [cfg] = await Promise.all([
-        api.get<{ config: QuickConfig }>('/api/quick'),
-        loadLib()
-      ]);
-      config = cfg.config;
-      if (!isElectron()) {
-        clear(container);
-        container.append(emptyState(icon('info'), 'Только для компьютера',
-          'Быстрый режим доступен в приложении Sonic Studio на Windows. Откройте интерфейс на компьютере.'));
-        return;
-      }
-      ensureEnabled();
-    } catch { /* ошибка сети уже показана тостом */ }
-  })();
+  renderShell();
 
   return {
+    root,
     teardown: () => {
       disposed = true;
       offState();
     }
   };
+}
+
+/** Заглушка на время загрузки блока плиток. */
+export function quickSectionSkeleton(): HTMLElement {
+  return h('section', { class: 'quick-section' }, spinner());
 }

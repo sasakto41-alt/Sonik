@@ -99,29 +99,29 @@ export function mountSettings(container: HTMLElement): { teardown: () => void } 
       if (r.qr) { qrImg.src = r.qr; qrImg.classList.remove('hidden'); }
     }).catch(() => {});
 
-    // ─── Быстрый режим (только в приложении на компьютере) ───
+    // ─── Быстрый доступ на главной (только в приложении на компьютере) ───
     if (isElectron()) {
       try {
         const q = await api.get<{ config: { enabled: boolean; tiles: unknown[] } }>('/api/quick');
         const quickCheck = h('input', { type: 'checkbox', checked: q.config.enabled ? '' : undefined }) as HTMLInputElement;
         const tilesNote = h('span', { class: 'muted' },
           q.config.enabled ? ` (плиток: ${q.config.tiles.length})` : '');
-        wrap.append(section('Быстрый режим',
+        wrap.append(section('Быстрый доступ на главной',
           h('div', { class: 'form-row' },
             h('label', { class: 'form-label' }, 'Собственная сетка быстрого доступа'),
             h('label', { class: 'check-label' }, quickCheck,
-              ' включить раздел «Быстрый режим» в меню', tilesNote),
+              ' показывать плитки на главном экране', tilesNote),
             h('button', { class: 'btn small', onclick: async () => {
               try {
                 await api.put('/api/quick', { enabled: quickCheck.checked });
                 toast('success', quickCheck.checked
-                  ? 'Быстрый режим включён — раздел появится в меню слева'
-                  : 'Быстрый режим выключен');
+                  ? 'Быстрый доступ включён — плитки на главном экране'
+                  : 'Быстрый доступ выключен');
                 void render();
               } catch (e) { toast('error', (e as Error).message); }
             } }, 'Применить')),
           h('div', { class: 'muted note' },
-            'В быстром режиме собирается собственная сетка плиток: действия плеера, треки, плейлисты, звуки Soundboard, разделы и команды сцены. Плитки перетаскиваются мышью, размеры меняются кнопкой S/M/L.')));
+            'Плитки живут прямо на главном экране — никакого отдельного раздела: действия плеера, треки, плейлисты, звуки Soundboard, разделы и команды сцены. Название трека, плей/пауза и громкость — в панели плеера внизу окна. Плитки перетаскиваются мышью, размер меняется кнопкой S/M/L.')));
       } catch { /* раздел просто не показывается */ }
     }
 

@@ -419,7 +419,18 @@ input[type=range] { accent-color: var(--accent); cursor: pointer; }
   .quick-actions { grid-template-columns: 1fr 1fr; }
 }
 
-/* ─── Быстрый режим ─────────────────────────────────────────────────────── */
+/* ─── Быстрый доступ (дашборд на главной) ───────────────────────────────── */
+
+/* Кнопка плиток в шапке приложения */
+.topbar-tiles { color: var(--accent-bright); }
+.topbar-tiles svg { width: 20px; height: 20px; }
+.topbar-tiles:hover { color: #fff; }
+
+.quick-section { margin-bottom: 26px; }
+
+/* Карточка включения быстрого доступа на главной */
+.dash-enable { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+.dash-enable .card-title { margin-bottom: 4px; }
 
 .quick-grid {
   display: grid;
