@@ -1,0 +1,40 @@
+appId: com.sonicstudio.app
+productName: Sonic Studio
+copyright: Sonic Studio
+directories:
+  output: release
+  buildResources: assets
+
+# В упаковку попадают собранные файлы (dist) и production-зависимости из node_modules.
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+asar: true
+compression: maximum
+
+win:
+  icon: assets/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Sonic Studio
+
+# Опционально: поставьте ffmpeg.exe в папку ffmpeg-bin/ перед сборкой,
+# и раскомментируйте блок ниже, чтобы FFmpeg попал в установщик
+# (нужен только для экспорта MP3 в аудиоредакторе; экспорт WAV работает без него).
+# extraResources:
+#   - from: ffmpeg-bin
+#     to: ffmpeg
+#     filter:
+#       - "**/*"

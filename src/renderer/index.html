@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1014" />
+  <link rel="stylesheet" href="./styles/main.css" />
+  <link rel="stylesheet" href="./styles/main2.css" />
+  <title>Sonic Studio</title>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar"></aside>
+    <div id="main">
+      <header id="topbar">
+        <button id="nav-toggle" class="icon-btn only-mobile" title="Меню" aria-label="Меню"></button>
+        <div id="topbar-title">Главная</div>
+        <div id="conn-status" class="conn ok"><span class="dot"></span><span id="conn-text">Подключено</span></div>
+      </header>
+      <main id="page"></main>
+    </div>
+    <div id="queue-drawer" class="hidden"></div>
+  </div>
+  <footer id="playerbar"></footer>
+  <div id="toasts"></div>
+  <div id="modal-root"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

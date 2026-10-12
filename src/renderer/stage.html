@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="./styles/main.css" />
+  <link rel="stylesheet" href="./styles/main2.css" />
+  <title>Sonic Studio — Stage Output</title>
+</head>
+<body class="stage-body">
+  <!-- Слои сценического вывода: никакого интерфейса управления -->
+  <div id="stage-root">
+    <video id="stage-video-a" playsinline></video>
+    <video id="stage-video-b" playsinline></video>
+    <div id="stage-image" class="hidden"></div>
+    <div id="stage-splash">
+      <div class="splash-logo">
+        <div class="splash-bars"><span></span><span></span><span></span><span></span><span></span></div>
+        <div id="splash-text">Sonic Studio</div>
+      </div>
+    </div>
+    <div id="stage-text" class="hidden"></div>
+    <div id="stage-black"></div>
+  </div>
+  <script type="module" src="./stage/main.ts"></script>
+</body>
+</html>
