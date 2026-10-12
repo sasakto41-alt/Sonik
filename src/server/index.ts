@@ -13,6 +13,7 @@ import { VideoCatalog } from './library-videos';
 import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
+import { QuickManager } from './quick';
 import { ServerContext } from './context';
 import { createAuthMiddleware, isLoopback } from './security';
 import { resolveDataDir } from './paths';
@@ -87,6 +88,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   const videos = new VideoCatalog(paths, log);
   const playlists = new PlaylistManager(paths);
   const soundboard = new SoundboardManager(paths);
+  const quick = new QuickManager(paths);
 
   // Определяем порт: из настроек или указанный
   let port = opts.port ?? settings.data.port;
@@ -145,6 +147,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     videos,
     playlists,
     soundboard,
+    quick,
     stage: null as unknown as StageController,
     bridge,
     ffmpeg: detectFfmpeg(),
@@ -287,7 +290,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     ctx,
     async close(): Promise<void> {
       log.info('Остановка сервера...');
-      try { music.saveNow(); videos.saveNow(); playlists.saveNow(); soundboard.saveNow(); } catch { /* ignore */ }
+      try { music.saveNow(); videos.saveNow(); playlists.saveNow(); soundboard.saveNow(); quick.saveNow(); } catch { /* ignore */ }
       try { await ws.close(); } catch { /* ignore */ }
       await new Promise<void>((resolve) => {
         httpServer.close(() => resolve());

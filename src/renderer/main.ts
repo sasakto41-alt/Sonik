@@ -15,13 +15,15 @@ import { mountEqualizer } from './pages/equalizer';
 import { mountVisualizer } from './pages/visualizer';
 import { mountStage } from './pages/stage';
 import { mountSettings } from './pages/settings';
+import { mountQuick } from './pages/quick';
 
 /**
  * Bootstrap интерфейса: сайдбар, роутер, панель плеера, WS-события, хоткеи.
  */
 
-const NAV = [
+const NAV: Array<{ id: string; label: string; icon: string; desktop?: boolean }> = [
   { id: 'home', label: 'Главная', icon: 'home' },
+  { id: 'quick', label: 'Быстрый режим', icon: 'check', desktop: true },
   { id: 'music', label: 'Музыка', icon: 'music' },
   { id: 'playlists', label: 'Плейлисты', icon: 'playlist' },
   { id: 'videos', label: 'Видео', icon: 'video' },
@@ -37,6 +39,7 @@ type PageMount = (container: HTMLElement, params: URLSearchParams) => { teardown
 
 const ROUTES: Record<string, PageMount> = {
   home: mountHome,
+  quick: mountQuick,
   music: mountMusic,
   playlists: mountPlaylists,
   videos: mountVideos,
@@ -86,6 +89,7 @@ function buildSidebar(): void {
   );
   const nav = h('nav', { class: 'nav' });
   for (const item of NAV) {
+    if (item.desktop && !isElectron()) continue; // быстрый режим — только на компьютере
     nav.append(h('button', {
       class: 'nav-item',
       'data-page': item.id,

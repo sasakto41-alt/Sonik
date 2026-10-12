@@ -253,6 +253,40 @@ export interface Settings {
   player: { volume: number; muted: boolean; shuffle: boolean; repeat: RepeatMode };
 }
 
+// ─── Быстрый режим ───────────────────────────────────────────────────────────
+
+export type QuickTileKind = 'action' | 'track' | 'playlist' | 'sound' | 'section';
+/** s = 1×1, m = 2×1, l = 2×2 в сетке быстрого режима. */
+export type QuickTileSize = 's' | 'm' | 'l';
+
+export type QuickPlayerAction =
+  | 'playPause' | 'next' | 'prev' | 'stop' | 'volume'
+  | 'repeat' | 'shuffle' | 'stopAllSounds';
+
+export type QuickSectionTarget =
+  | 'home' | 'music' | 'playlists' | 'videos' | 'soundboard' | 'editor'
+  | 'equalizer' | 'visualizer' | 'stage' | 'settings'
+  | 'stageBlack' | 'stageRestore' | 'stageStop';
+
+export interface QuickTile {
+  id: string;
+  kind: QuickTileKind;
+  size: QuickTileSize;
+  /** kind = 'action' */
+  action?: QuickPlayerAction;
+  /** kind = 'section' */
+  section?: QuickSectionTarget;
+  /** kind = 'track' | 'playlist' | 'sound' — id объекта из библиотеки */
+  refId?: string;
+  /** Пользовательское название (необязательно, по умолчанию — из объекта) */
+  label?: string;
+}
+
+export interface QuickConfig {
+  enabled: boolean;
+  tiles: QuickTile[];
+}
+
 // ─── Мост Electron <-> сервер ────────────────────────────────────────────────
 
 export interface ElectronBridge {

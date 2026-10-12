@@ -99,6 +99,32 @@ export function mountSettings(container: HTMLElement): { teardown: () => void } 
       if (r.qr) { qrImg.src = r.qr; qrImg.classList.remove('hidden'); }
     }).catch(() => {});
 
+    // ─── Быстрый режим (только в приложении на компьютере) ───
+    if (isElectron()) {
+      try {
+        const q = await api.get<{ config: { enabled: boolean; tiles: unknown[] } }>('/api/quick');
+        const quickCheck = h('input', { type: 'checkbox', checked: q.config.enabled ? '' : undefined }) as HTMLInputElement;
+        const tilesNote = h('span', { class: 'muted' },
+          q.config.enabled ? ` (плиток: ${q.config.tiles.length})` : '');
+        wrap.append(section('Быстрый режим',
+          h('div', { class: 'form-row' },
+            h('label', { class: 'form-label' }, 'Собственная сетка быстрого доступа'),
+            h('label', { class: 'check-label' }, quickCheck,
+              ' включить раздел «Быстрый режим» в меню', tilesNote),
+            h('button', { class: 'btn small', onclick: async () => {
+              try {
+                await api.put('/api/quick', { enabled: quickCheck.checked });
+                toast('success', quickCheck.checked
+                  ? 'Быстрый режим включён — раздел появится в меню слева'
+                  : 'Быстрый режим выключен');
+                void render();
+              } catch (e) { toast('error', (e as Error).message); }
+            } }, 'Применить')),
+          h('div', { class: 'muted note' },
+            'В быстром режиме собирается собственная сетка плиток: действия плеера, треки, плейлисты, звуки Soundboard, разделы и команды сцены. Плитки перетаскиваются мышью, размеры меняются кнопкой S/M/L.')));
+      } catch { /* раздел просто не показывается */ }
+    }
+
     // ─── Переходы и звук по умолчанию ───
     const fadeIn = rangeInput('Fade In по умолчанию', settings.defaults.fadeIn);
     const fadeOut = rangeInput('Fade Out по умолчанию', settings.defaults.fadeOut);

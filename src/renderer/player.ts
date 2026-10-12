@@ -1,6 +1,7 @@
 import { EQ_BANDS, PlayerState, RepeatMode, EqState, Track, Snapshot } from '../shared/types';
 import { api, mediaUrl, isElectron } from './api';
 import { store } from './store';
+import { toast } from './ui';
 
 /**
  * Музыкальный плеер.
@@ -14,6 +15,8 @@ type Events = {
   state: (p: PlayerState) => void;
   track: (t: Track | null) => void;
 };
+
+type ListenerOff = () => void;
 
 class MusicPlayer {
   audio: HTMLAudioElement;
@@ -34,7 +37,8 @@ class MusicPlayer {
   private shuffledOrder: string[] = [];
   private reportTimer: number | null = null;
   private lastReportAt = 0;
-  private listeners: Partial<Events> = {};
+  /** Несколько слушателей: панель плеера, быстрый режим и другие страницы независимы. */
+  private listeners: { [K in keyof Events]: Events[K][] } = { state: [], track: [] };
   private currentTrack: Track | null = null;
   /** Эхо-подавление: игнорировать snapshot-обновления плеера, если это наш отчёт. */
   private suppressSnapshotUntil = 0;
@@ -57,14 +61,36 @@ class MusicPlayer {
         void this.markMissing(this.state.trackId);
       }
     });
+    // Критично: реальное состояние аудиоэлемента — единственный источник истины
+    // по статусу. Без этих обработчиков status остаётся 'playing' после паузы,
+    // и toggle() повторно вызывает pause() вместо play() (плей/пауза «не работают»).
+    this.audio.addEventListener('play', () => {
+      this.state.status = 'playing';
+      this.emitState();
+      this.report(true);
+    });
+    this.audio.addEventListener('pause', () => {
+      // 'pause' также срабатывает при подмене src и по завершении трека —
+      // в этих случаях статус уже управляется другой логикой.
+      if (this.state.status === 'stopped' || this.audio.ended) return;
+      this.state.status = 'paused';
+      this.emitState();
+      this.report(true);
+    });
   }
 
-  on<K extends keyof Events>(evt: K, fn: Events[K]): void {
-    this.listeners[evt] = fn;
+  /** Подписка на событие; возвращает функцию отписки. */
+  on<K extends keyof Events>(evt: K, fn: Events[K]): ListenerOff {
+    const list = this.listeners[evt] as Events[K][];
+    list.push(fn);
+    return () => {
+      const i = list.indexOf(fn);
+      if (i >= 0) list.splice(i, 1);
+    };
   }
 
   private emitState(): void {
-    this.listeners.state?.(this.state);
+    for (const fn of [...this.listeners.state]) fn(this.state);
   }
 
   getAnalyser(): AnalyserNode | null {
@@ -156,11 +182,17 @@ class MusicPlayer {
       if (this.state.queue.length > 0) {
         const idx = Math.max(0, this.state.queueIndex);
         await this.playTrack(this.state.queue[idx]);
+      } else {
+        toast('info', 'Очередь пуста — выберите трек в разделе «Музыка»');
       }
       return;
     }
     this.ensureGraph();
-    try { await this.audio.play(); } catch { /* требуется жест пользователя */ }
+    try {
+      await this.audio.play();
+      this.state.status = 'playing';
+      this.emitState();
+    } catch { /* требуется жест пользователя */ }
   }
 
   pause(): void {
@@ -198,7 +230,7 @@ class MusicPlayer {
   }
 
   async next(user = true): Promise<void> {
-    const id = this.pickNext(user ? 1 : 1);
+    const id = this.pickNext(1);
     if (id) await this.playTrack(id);
     else if (!user) {
       this.state.status = 'stopped';
@@ -295,7 +327,7 @@ class MusicPlayer {
       const r = await api.get<{ tracks: Track[] }>('/api/music/tracks');
       const t = r.tracks.find(x => x.id === id) || null;
       this.currentTrack = t;
-      this.listeners.track?.(t);
+      for (const fn of [...this.listeners.track]) fn(t);
       return t;
     } catch {
       return null;
@@ -304,16 +336,20 @@ class MusicPlayer {
 
   private async loadAndPlay(t: Track): Promise<void> {
     if (t.missing) {
+      toast('error', `Файл отсутствует на диске: ${t.title}`);
       this.emitState();
       return;
     }
     this.state.trackId = t.id;
     this.state.title = t.title;
     this.state.artist = t.artist;
-    this.state.status = 'playing';
+    // Сначала src, затем play(): подмена src вызывает 'pause', обработчик
+    // которого не должен оставить ложный 'paused' — после успешного play()
+    // статус устанавливается явно (и событием 'play').
     this.audio.src = mediaUrl(`/api/media/audio/${t.id}`);
     try {
       await this.audio.play();
+      this.state.status = 'playing';
     } catch {
       this.state.status = 'paused';
     }
@@ -420,7 +456,7 @@ class MusicPlayer {
       void this.fetchTrack(t);
     } else if (!t) {
       this.currentTrack = null;
-      this.listeners.track?.(null);
+      for (const fn of [...this.listeners.track]) fn(null);
     }
   }
 

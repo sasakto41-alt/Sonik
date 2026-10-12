@@ -9,6 +9,7 @@ import { VideoCatalog } from './library-videos';
 import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
+import { QuickManager } from './quick';
 
 /**
  * Общий контекст сервера — передаётся во все модули и маршруты.
@@ -25,6 +26,7 @@ export interface ServerContext {
   videos: VideoCatalog;
   playlists: PlaylistManager;
   soundboard: SoundboardManager;
+  quick: QuickManager;
   stage: StageController;
   bridge: ElectronBridge | null;
   ffmpeg: { available: boolean; path: string | null };

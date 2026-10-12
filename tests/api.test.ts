@@ -32,6 +32,16 @@ async function jpost<T>(p: string, body?: unknown): Promise<{ status: number } &
   return Object.assign({ status: r.status }, json) as { status: number } & T;
 }
 
+async function jput<T>(p: string, body: unknown): Promise<{ status: number } & T> {
+  const r = await fetch(url(p), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const json = await r.json() as Record<string, unknown>;
+  return Object.assign({ status: r.status }, json) as { status: number } & T;
+}
+
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonic-api-'));
   server = await startSonicServer({ dataDir, port: 0, electron: false, appVersion: 'test' });
@@ -197,13 +207,56 @@ test('Настройки: LAN по умолчанию выключен, фейд
   assert.equal(s2.settings.defaults.fadeOut, 2);
 });
 
+test('Быстрый режим: конфиг по умолчанию выключен, включение и валидация плиток', async () => {
+  const def = await jget<{ config: { enabled: boolean; tiles: { kind: string; action?: string }[] } }>('/api/quick');
+  assert.equal(def.status, 200);
+  assert.equal(def.config.enabled, false);
+  assert.ok(Array.isArray(def.config.tiles));
+  assert.ok(def.config.tiles.some(t => t.kind === 'action'), 'в стартовом наборе есть действия плеера');
+
+  // Включаем и сохраняем набор: корректная плитка + мусорные отбрасываются
+  const put = await jput<{ config: { enabled: boolean; tiles: { kind: string; size: string; action?: string }[] } }>('/api/quick', {
+    enabled: true,
+    tiles: [
+      { kind: 'action', size: 'm', action: 'playPause' },
+      { kind: 'section', size: 's', section: 'stageBlack' },
+      { kind: 'action', size: 's', action: 'неизвестное-действие' },
+      { kind: 'track', size: 's' },
+      { kind: 'bogus', size: 's' }
+    ]
+  });
+  assert.equal(put.status, 200);
+  assert.equal(put.config.enabled, true);
+  assert.equal(put.config.tiles.length, 2);
+  assert.equal(put.config.tiles[0].action, 'playPause');
+
+  // Конфигурация переживает повторное чтение (сохранение на диск)
+  const again = await jget<{ config: { enabled: boolean; tiles: unknown[] } }>('/api/quick');
+  assert.equal(again.config.enabled, true);
+  assert.equal(again.config.tiles.length, 2);
+
+  // Некорректный размер приводится к 's'
+  const put2 = await jput<{ config: { tiles: { size: string }[] } }>('/api/quick', {
+    enabled: true,
+    tiles: [{ kind: 'action', size: 'огромный', action: 'stop' }]
+  });
+  assert.equal(put2.status, 200);
+  assert.equal(put2.config.tiles[0].size, 's');
+
+  // Выключаем обратно
+  await jput('/api/quick', { enabled: false, tiles: [] });
+  const fin = await jget<{ config: { enabled: boolean } }>('/api/quick');
+  assert.equal(fin.config.enabled, false);
+});
+
 test('Резервная копия содержит конфигурации', async () => {
   const r = await fetch(url('/api/system/backup'));
   assert.equal(r.status, 200);
-  const body = await r.json() as { kind: string; settings: unknown; soundboard: unknown };
+  const body = await r.json() as { kind: string; settings: unknown; soundboard: unknown; quick: { tiles: unknown[] } | undefined };
   assert.equal(body.kind, 'sonic-studio-backup');
   assert.ok(body.settings);
   assert.ok(body.soundboard);
+  assert.ok(Array.isArray(body.quick?.tiles), 'быстрый режим включён в резервную копию');
 });
 
 test('Журнал событий отдаётся', async () => {

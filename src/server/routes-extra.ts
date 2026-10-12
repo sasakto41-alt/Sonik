@@ -209,6 +209,21 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
     res.json({ ok: true });
   }));
 
+  // ─── Быстрый режим ───
+
+  app.get('/api/quick', ah(async (_req, res) => {
+    res.json({ config: ctx.quick.config });
+  }));
+
+  app.put('/api/quick', express.json({ limit: '256kb' }), ah(async (req, res) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const config = ctx.quick.sanitizeConfig(body);
+    ctx.log.info(`Быстрый режим: enabled=${config.enabled}, плиток ${config.tiles.length}`);
+    ctx.store.touch('settings');
+    ctx.broadcastSnapshot();
+    res.json({ ok: true, config });
+  }));
+
   // ─── Эквалайзер ───
 
   app.get('/api/equalizer', ah(async (_req, res) => {
@@ -331,6 +346,7 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
       playlists: ctx.playlists.listMusic(),
       videoPlaylists: ctx.playlists.listVideo(),
       soundboard: ctx.soundboard.config,
+      quick: ctx.quick.config,
       eq: ctx.store.eq
     };
     res.setHeader('Content-Type', 'application/json');
@@ -365,6 +381,11 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
       }
     }
     if (body.soundboard && typeof body.soundboard === 'object') ctx.soundboard.replace(body.soundboard as Record<string, unknown>);
+    if (body.quick && typeof body.quick === 'object') {
+      const q = body.quick as Record<string, unknown>;
+      const tiles = Array.isArray(q.tiles) ? q.tiles : [];
+      ctx.quick.sanitizeConfig({ enabled: q.enabled === true, tiles });
+    }
     ctx.playlists.saveNow();
     ctx.soundboard.saveNow();
     ctx.store.touch('settings');
