@@ -115,7 +115,9 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     const origin = req.headers.origin;
     if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
+      // x-device-id обязателен: renderer шлёт его в каждом запросе (меню устройств).
+      // Без него preflight CORS отклоняется — «Нет соединения с сервером» в dev-режиме.
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, x-device-id');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Vary', 'Origin');
     }

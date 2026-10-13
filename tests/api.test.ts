@@ -333,3 +333,25 @@ test('Журнал событий отдаётся', async () => {
   assert.equal(r.status, 200);
   assert.ok(typeof r.logs === 'string');
 });
+
+test('CORS preflight разрешает x-device-id (иначе «Нет соединения» в dev-режиме)', async () => {
+  const r = await fetch(url('/api/state'), {
+    method: 'OPTIONS',
+    headers: {
+      'Origin': 'http://localhost:5173',
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'x-auth-token,x-device-id'
+    }
+  });
+  assert.equal(r.status, 204);
+  const allow = r.headers.get('access-control-allow-headers') || '';
+  assert.match(allow, /x-device-id/i, 'x-device-id должен быть в Access-Control-Allow-Headers');
+  assert.match(allow, /x-auth-token/i);
+  assert.equal(r.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+});
+
+test('Запрос с Origin получает CORS-заголовки и не блокируется', async () => {
+  const r = await fetch(url('/api/health'), { headers: { 'Origin': 'http://localhost:5173' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+});
