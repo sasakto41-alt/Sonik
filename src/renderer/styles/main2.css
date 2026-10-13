@@ -356,7 +356,7 @@ input[type=range] { accent-color: var(--accent); cursor: pointer; }
 }
 #stage-image {
   position: absolute; inset: 0;
-  background: center/contain no-repeat;
+  background: center/cover no-repeat;
 }
 #stage-image.hidden { display: none; }
 #stage-splash {

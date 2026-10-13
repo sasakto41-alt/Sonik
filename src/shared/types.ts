@@ -8,6 +8,8 @@ export const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
 export const AUDIO_EXTS = ['.mp3', '.wav', '.flac', '.ogg', '.oga', '.m4a', '.aac', '.opus'];
 export const VIDEO_EXTS = ['.mp4', '.webm', '.m4v', '.mov', '.mkv', '.avi'];
+/** Форматы картинок для сценического вывода (то, что умеет рендерить Chromium). */
+export const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 /** Форматы, которые браузерный декодер воспроизводит не гарантированно. */
 export const RISKY_VIDEO_EXTS = ['.mkv', '.avi', '.mov'];
 
@@ -70,6 +72,18 @@ export interface VideoItem {
 }
 
 export type VideoAfterAction = 'stop' | 'black' | 'next' | 'loop';
+
+/** Картинка для показа на сценическом выводе (файл остаётся в своей папке). */
+export interface ImageAsset {
+  id: string;
+  path: string;
+  title: string;
+  format: string;        // 'jpg' и т.п.
+  size: number;
+  mtime: number;
+  missing: boolean;
+  addedAt: number;
+}
 
 export interface Playlist {
   id: string;
@@ -147,6 +161,9 @@ export interface StageState {
   status: StageStatus;
   videoId: string | null;
   videoTitle: string;
+  /** Картинка, показанная на экране сцены (если есть). */
+  imageId: string | null;
+  imageTitle: string;
   position: number;
   duration: number;
   volume: number;
@@ -239,6 +256,7 @@ export interface Settings {
   lanToken: string;
   musicFolders: string[];
   videoFolders: string[];
+  imageFolders: string[];
   stageDisplayId: number | null;
   defaults: {
     volume: number;
@@ -300,7 +318,7 @@ export interface ElectronBridge {
   closeStageWindow(): void;
   isStageWindowOpen(): boolean;
   pickFolder(): Promise<string | null>;
-  pickFiles(kind: 'music' | 'video' | 'sound' | 'any'): Promise<string[]>;
+  pickFiles(kind: 'music' | 'video' | 'sound' | 'image' | 'any'): Promise<string[]>;
   showInFolder(p: string): void;
   /** Регистрирует глобальные хоткеи; возвращает список занятых. */
   registerHotkeys(map: Record<string, string>): string[];

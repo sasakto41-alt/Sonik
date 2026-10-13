@@ -320,6 +320,36 @@ async function handleCommand(action: string, payload: Record<string, unknown>): 
       showSplash(true);
       break;
     }
+    case 'showImage': {
+      // Картинка на весь экран (заполнить). Видео останавливается полностью.
+      const imageId = String(payload.imageId || '');
+      cancelFade();
+      activeEl.pause();
+      standbyEl.pause();
+      applyInstant(activeEl, 0);
+      standbyEl.style.opacity = '0';
+      showSplash(false);
+      textLayer.classList.add('hidden');
+      if (imageId) {
+        imageLayer.style.backgroundImage = `url("${mediaUrl(`/api/media/image/${imageId}`)}")`;
+        imageLayer.classList.remove('hidden');
+      }
+      blacked = false;
+      blackLayer.style.opacity = '0';
+      send({ status: 'stopped', imageShown: true });
+      break;
+    }
+    case 'hideImage': {
+      // Убираем картинку — возвращаемся к безопасному чёрному экрану
+      cancelFade();
+      activeEl.pause();
+      applyInstant(activeEl, 0);
+      imageLayer.classList.add('hidden');
+      blacked = true;
+      blackLayer.style.opacity = '1';
+      send({ status: 'stopped', imageShown: false, blacked: true });
+      break;
+    }
     case 'showText': {
       const text = String(payload.text || '');
       if (text) {
@@ -343,6 +373,7 @@ function showSplash(on: boolean): void {
 
 async function crossfadeTo(videoId: string, dur: number, volume: number, muted: boolean): Promise<void> {
   endHandled = false;
+  imageLayer.classList.add('hidden');
   const nextEl = standbyEl;
   nextEl.src = mediaUrl(`/api/media/video/${videoId}`);
   nextEl.volume = muted ? 0 : volume;
@@ -388,17 +419,37 @@ videoB.addEventListener('ended', onEnded);
 videoA.addEventListener('timeupdate', onTimeUpdate);
 videoB.addEventListener('timeupdate', onTimeUpdate);
 
-function onEnded(): void {
-  if (endHandled || !currentItem) return;
+function onEnded(ev: Event): void {
+  if (!currentItem) return;
+  const el = ev.target === videoB ? videoB : videoA;
+  // Бесшовный повтор: локальный перезапуск — без перезагрузки src,
+  // без запроса на сервер и без чёрного кадра между повторами.
+  if (currentItem.repeat) {
+    endHandled = false;
+    el.currentTime = currentItem.startPosition || 0;
+    void el.play().catch(() => {});
+    send({ status: 'playing', position: el.currentTime });
+    return;
+  }
+  if (endHandled) return;
   endHandled = true;
   send({ ended: currentItem.id, status: 'stopped' });
 }
 
 function onTimeUpdate(): void {
+  if (!currentItem) return;
   // Ограничение конечной позицией
-  if (currentItem?.endPosition && activeEl.currentTime >= currentItem.endPosition && !endHandled) {
-    endHandled = true;
-    send({ ended: currentItem.id, status: 'stopped' });
+  if (currentItem.endPosition && activeEl.currentTime >= currentItem.endPosition) {
+    if (currentItem.repeat) {
+      // Повтор с обрезкой: бесшовный возврат к начальной позиции без "ended"
+      activeEl.currentTime = currentItem.startPosition || 0;
+      send({ status: 'playing', position: activeEl.currentTime });
+      return;
+    }
+    if (!endHandled) {
+      endHandled = true;
+      send({ ended: currentItem.id, status: 'stopped' });
+    }
   }
 }
 

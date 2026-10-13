@@ -128,6 +128,51 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
     res.json({ ok: true });
   }));
 
+  // ─── Картинки для сцены ───
+
+  app.get('/api/images', ah(async (_req, res) => {
+    res.json({ images: ctx.images.list() });
+  }));
+
+  /** Файлы, выбранные через проводник — добавляются в список постоянно. */
+  app.post('/api/images/files', express.json({ limit: '1mb' }), ah(async (req, res) => {
+    const pathsList = (req.body as { paths?: unknown })?.paths;
+    if (!Array.isArray(pathsList)) return fail(res, 400, 'Не передан список файлов');
+    const r = ctx.images.addFiles(pathsList.map(String));
+    ctx.broadcastSnapshot();
+    res.json({ ok: true, ...r });
+  }));
+
+  /** Скан папок картинок из настроек (быстрый, выполняется синхронно). */
+  app.post('/api/images/scan', ah(async (_req, res) => {
+    try {
+      const r = ctx.images.scan(ctx.settings.data.imageFolders);
+      r.errors.forEach(e => ctx.log.warn(`Скан картинок: ${e}`));
+      ctx.broadcastSnapshot();
+      res.json({ ok: true, ...r });
+    } catch (err) {
+      ctx.log.error(`Ошибка сканирования картинок: ${(err as Error).message}`);
+      fail(res, 500, 'Не удалось выполнить сканирование картинок');
+    }
+  }));
+
+  app.delete('/api/images/:id', ah(async (req, res) => {
+    // Если картинка сейчас на экране сцены — сначала убираем её
+    if (ctx.store.stage.imageId === req.params.id) {
+      await ctx.stage.command('hideImage');
+    }
+    const ok = ctx.images.remove(req.params.id);
+    if (!ok) return fail(res, 404, 'Картинка не найдена');
+    ctx.broadcastSnapshot();
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/media/image/:id', ah(async (req, res) => {
+    const img = ctx.images.byId(req.params.id);
+    if (!img) return fail(res, 404, 'Картинка не найдена в библиотеке');
+    streamChecked(req, res, ctx.allowedRoots(), img.path);
+  }));
+
   // ─── Сценический вывод ───
 
   app.post('/api/stage/command', express.json({ limit: '64kb' }), ah(async (req, res) => {
@@ -266,6 +311,9 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
     if (Array.isArray(body.videoFolders)) {
       s.videoFolders = (body.videoFolders as unknown[]).filter(x => typeof x === 'string').map(String);
     }
+    if (Array.isArray(body.imageFolders)) {
+      s.imageFolders = (body.imageFolders as unknown[]).filter(x => typeof x === 'string').map(String);
+    }
     if (body.defaults && typeof body.defaults === 'object') {
       const d = body.defaults as Record<string, unknown>;
       if (typeof d.volume === 'number') s.defaults.volume = clamp(d.volume, 0, 1);
@@ -362,6 +410,7 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
       const src = body.settings as Record<string, unknown>;
       if (Array.isArray(src.musicFolders)) s.musicFolders = src.musicFolders.map(String);
       if (Array.isArray(src.videoFolders)) s.videoFolders = src.videoFolders.map(String);
+      if (Array.isArray(src.imageFolders)) s.imageFolders = src.imageFolders.map(String);
       if (typeof src.stageDisplayId === 'number' || src.stageDisplayId === null) s.stageDisplayId = src.stageDisplayId as number | null;
       if (src.defaults && typeof src.defaults === 'object') Object.assign(s.defaults, src.defaults);
       if (src.crossfade && typeof src.crossfade === 'object') Object.assign(s.crossfade, src.crossfade);

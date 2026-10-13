@@ -17,6 +17,7 @@ export function setupIpc(stage: StageWindowManager): void {
       music: [{ name: 'Аудио', extensions: ['mp3', 'wav', 'flac', 'ogg', 'oga', 'm4a', 'aac', 'opus'] }],
       video: [{ name: 'Видео', extensions: ['mp4', 'webm', 'm4v', 'mov', 'mkv', 'avi'] }],
       sound: [{ name: 'Аудио', extensions: ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'] }],
+      image: [{ name: 'Изображения', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'] }],
       any: [{ name: 'Все файлы', extensions: ['*'] }]
     };
     const filters = filtersByKind[String(kind)] || filtersByKind.any;

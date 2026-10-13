@@ -42,7 +42,8 @@ export class StageController {
       const f = (data.activeFade as StageState['activeFade']) ?? null;
       if (f !== this.s.activeFade) { this.s.activeFade = f; changed = true; }
     }
-    if (typeof data.ended === 'number' && data.ended) {
+    // Ролик завершился: id приходит строкой (uuid) или числом — принимаем оба варианта
+    if (data.ended !== undefined && data.ended !== null && data.ended !== false && data.ended !== '') {
       this.handleEnded(String(data.ended));
       return;
     }
@@ -167,6 +168,8 @@ export class StageController {
     }
     this.s.videoId = item.id;
     this.s.videoTitle = item.title;
+    this.s.imageId = null;
+    this.s.imageTitle = '';
     this.s.duration = item.duration;
     this.s.position = item.startPosition || 0;
     this.s.volume = item.volume;
@@ -300,6 +303,37 @@ export class StageController {
         this.fwd('hideText');
         return { ok: true };
       }
+      case 'showImage': {
+        const id = String(payload.imageId || '');
+        const img = this.ctx.images.byId(id);
+        if (!img) return { ok: false, error: 'Картинка не найдена в библиотеке' };
+        if (img.missing || !fs.existsSync(img.path)) {
+          return { ok: false, error: 'Файл картинки не найден. Обновите список картинок.' };
+        }
+        const bridge = this.ctx.bridge;
+        if (bridge && bridge.electronAvailable && !bridge.isStageWindowOpen()) {
+          bridge.openStageWindow();
+        }
+        this.s.imageId = img.id;
+        this.s.imageTitle = img.title;
+        this.s.blacked = false;
+        this.s.error = null;
+        this.fwd('showImage', { imageId: img.id });
+        this.s.status = 'stopped';
+        this.s.position = 0;
+        this.broadcast();
+        return { ok: true };
+      }
+      case 'hideImage': {
+        if (!this.s.imageId) return { ok: false, error: 'Картинка сейчас не показана' };
+        this.fwd('hideImage');
+        this.s.imageId = null;
+        this.s.imageTitle = '';
+        this.s.blacked = true;
+        this.s.status = 'stopped';
+        this.broadcast();
+        return { ok: true };
+      }
       case 'setVolume': {
         const v = clamp(Number(payload.volume), 0, 1);
         s.volume = v;
@@ -413,6 +447,8 @@ export class StageController {
         this.fwd('crossfade', { videoId: id, duration: dur, volume: item.volume, muted: item.muted });
         s.videoId = item.id;
         s.videoTitle = item.title;
+        s.imageId = null;
+        s.imageTitle = '';
         s.status = 'playing';
         this.broadcast();
         this.ctx.videos.addHistory(item);

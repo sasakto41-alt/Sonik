@@ -6,6 +6,7 @@ import { AppState } from './state';
 import { WsHub } from './ws';
 import { MusicCatalog } from './library-music';
 import { VideoCatalog } from './library-videos';
+import { ImageLibrary } from './library-images';
 import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
@@ -24,6 +25,7 @@ export interface ServerContext {
   ws: WsHub;
   music: MusicCatalog;
   videos: VideoCatalog;
+  images: ImageLibrary;
   playlists: PlaylistManager;
   soundboard: SoundboardManager;
   quick: QuickManager;

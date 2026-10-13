@@ -1,7 +1,7 @@
 import { h, clear, el, fmtTime, toast, confirmDialog, makeSlider } from '../ui';
 import { ICONS, icon } from '../icons';
-import { api } from '../api';
-import { DisplayInfo, VideoItem, VideoPlaylist, Snapshot } from '../../shared/types';
+import { api, isElectron } from '../api';
+import { DisplayInfo, VideoItem, VideoPlaylist, Snapshot, ImageAsset } from '../../shared/types';
 import { snapshotListener } from '../components';
 import { store } from '../store';
 
@@ -17,6 +17,7 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
   let snapshot: Snapshot | null = null;
   let videos: VideoItem[] = [];
   let playlists: VideoPlaylist[] = [];
+  let images: ImageAsset[] = [];
   // Активный слайдер позиции сцены (обновляется одним общим интервалом)
   let stageProgress: { slider: ReturnType<typeof makeSlider>; label: HTMLElement } | null = null;
   window.setInterval(() => {
@@ -48,12 +49,14 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
 
   async function refresh(): Promise<void> {
     try {
-      const [v, p] = await Promise.all([
+      const [v, p, imgs] = await Promise.all([
         api.get<{ videos: VideoItem[] }>('/api/videos'),
-        api.get<{ playlists: VideoPlaylist[] }>('/api/video-playlists')
+        api.get<{ playlists: VideoPlaylist[] }>('/api/video-playlists'),
+        api.get<{ images: ImageAsset[] }>('/api/images')
       ]);
       videos = v.videos.filter(x => !x.missing);
       playlists = p.playlists;
+      images = imgs.images;
     } catch { /* ignore */ }
   }
 
@@ -125,6 +128,7 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
         statItem('Дисплей', stage.displayId === null ? 'не выбран' : (s.displays.find(d => d.id === stage.displayId)?.label || `ID ${stage.displayId}`)),
         statItem('Ролик', stage.videoTitle || '— не выбран —'),
         statItem('Состояние', statusText(stage.status) + (stage.blacked ? ' · чёрный экран' : '') + (stage.fullscreen ? ' · полный экран' : '')),
+        statItem('На экране', stage.imageId ? `картинка: ${stage.imageTitle || 'без названия'}` : '—'),
         statItem('Время', `${fmtTime(store.estimatePosition('stage'))} / ${fmtTime(stage.duration)}`),
         statItem('Переход', stage.activeFade === 'in' ? 'Fade In идёт' : stage.activeFade === 'out' ? 'Fade Out идёт' : '—'),
         statItem('Следующий', stage.nextVideoTitle || '—')),
@@ -149,6 +153,22 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
       h('button', { class: 'btn ghost', html: icon('image') + '<span>Заставка</span>', onclick: () => void cmd('showSplash') }),
       h('button', { class: 'btn ghost', html: icon('editor') + `<span>Fade In (${stage.fadeIn.toFixed(1)} с)</span>`, onclick: () => void cmd('fadeIn') }),
       h('button', { class: 'btn ghost', html: icon('editor') + `<span>Fade Out (${stage.fadeOut.toFixed(1)} с)</span>`, onclick: () => void cmd('fadeOut') }));
+
+    // Картинка на экране (заполняет экран целиком; видео останавливается)
+    const imgSelect = h('select', { class: 'input select grow' },
+      h('option', { value: '' }, images.length ? '— Картинка для экрана —' : '— Картинок нет: добавьте папку в настройках —'),
+      ...images.map(i => h('option', { value: i.id, selected: stage.imageId === i.id ? '' : undefined },
+        i.title + (i.missing ? ' (файл отсутствует)' : '')))) as HTMLSelectElement;
+    const imageRow = h('div', { class: 'btn-row' },
+      imgSelect,
+      h('button', { class: 'btn accent', html: icon('image') + '<span>Показать</span>',
+        onclick: () => { if (imgSelect.value) void cmd('showImage', { imageId: imgSelect.value }); else toast('info', 'Выберите картинку'); } }),
+      h('button', { class: 'btn dark', onclick: () => void cmd('hideImage') }, 'Скрыть'));
+    const imageRow2 = h('div', { class: 'btn-row' },
+      h('button', { class: 'btn ghost small', html: icon('refresh') + '<span>Обновить список (скан папок)</span>',
+        onclick: () => void rescanImages() }),
+      isElectron() ? h('button', { class: 'btn small', html: icon('folderPlus') + '<span>Выбрать файл через проводник…</span>',
+        onclick: () => void pickImages() }) : null);
 
     // Титры
     const textInput = h('input', { class: 'input', placeholder: 'Текст титров на экране' }) as HTMLInputElement;
@@ -184,7 +204,36 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
       h('button', { class: 'btn', onclick: () => { if (select.value) void cmd('crossfadeTo', { videoId: select.value }); } }, 'Crossfade'),
       plSelect);
 
-    controlBox.append(status, loadRow, playRow, screenRow, volRow, h('div', { class: 'form-row' }, h('label', { class: 'form-label' }, 'Титры'), textRow));
+    controlBox.append(status, loadRow, playRow, screenRow,
+      h('div', { class: 'form-row' }, h('label', { class: 'form-label' }, 'Картинка на экране'), imageRow),
+      imageRow2,
+      volRow, h('div', { class: 'form-row' }, h('label', { class: 'form-label' }, 'Титры'), textRow));
+  }
+
+  async function rescanImages(): Promise<void> {
+    try {
+      const r = await api.post<{ added: number; errors: string[] }>('/api/images/scan', {});
+      const imgs = await api.get<{ images: ImageAsset[] }>('/api/images');
+      images = imgs.images;
+      if (snapshot) renderControls(snapshot);
+      toast('success', `Скан картинок завершён: добавлено ${r.added}` + (r.errors.length ? `, ошибок ${r.errors.length}` : ''));
+    } catch (e) { toast('error', (e as Error).message); }
+  }
+
+  async function pickImages(): Promise<void> {
+    const w = window as unknown as { sonicDesktop?: { pickFiles(k: string): Promise<string[]> } };
+    if (!w.sonicDesktop) return;
+    let files: string[] = [];
+    try { files = await w.sonicDesktop.pickFiles('image'); } catch { return; }
+    if (!files.length) return;
+    try {
+      const r = await api.post<{ added: number; updated: number; errors: string[] }>('/api/images/files', { paths: files });
+      const imgs = await api.get<{ images: ImageAsset[] }>('/api/images');
+      images = imgs.images;
+      if (snapshot) renderControls(snapshot);
+      if (r.added > 0) toast('success', `Добавлено картинок: ${r.added}`);
+      if (r.errors.length) toast('error', r.errors[0]);
+    } catch (e) { toast('error', (e as Error).message); }
   }
 
   function progressSlider(stage: Snapshot['stage']): HTMLElement {

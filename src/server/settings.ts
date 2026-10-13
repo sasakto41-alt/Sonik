@@ -13,6 +13,7 @@ export function defaultSettings(): Settings {
     lanToken: randomToken(),
     musicFolders: [],
     videoFolders: [],
+    imageFolders: [],
     stageDisplayId: null,
     defaults: {
       volume: 1,

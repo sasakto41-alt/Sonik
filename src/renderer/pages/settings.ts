@@ -39,6 +39,11 @@ export function mountSettings(container: HTMLElement): { teardown: () => void } 
       toast('success', 'Папки видео обновлены');
       void render();
     });
+    const imageList = folderList(settings.imageFolders, async (folders) => {
+      await api.put('/api/settings', { imageFolders: folders });
+      toast('success', 'Папки картинок обновлены');
+      void render();
+    });
     wrap.append(section('Медиапапки',
       h('div', { class: 'folder-block' },
         h('div', { class: 'form-label' }, 'Музыка (файлы остаются в своих папках, копирования нет)'),
@@ -58,6 +63,16 @@ export function mountSettings(container: HTMLElement): { teardown: () => void } 
             await api.put('/api/settings', { videoFolders: folders });
             await api.post('/api/videos/scan', {});
             toast('info', 'Сканирование запущено');
+            void render();
+          }) }) : h('span')),
+      h('div', { class: 'folder-block' },
+        h('div', { class: 'form-label' }, 'Картинки для сценического вывода (JPG, PNG, GIF, WEBP, BMP)'),
+        imageList,
+        isElectron() ? h('button', { class: 'btn small', html: icon('folderPlus') + '<span>Добавить папку картинок</span>',
+          onclick: () => void addFolder(settings.imageFolders, async (folders) => {
+            await api.put('/api/settings', { imageFolders: folders });
+            await api.post('/api/images/scan', {});
+            toast('info', 'Папка добавлена, список картинок обновляется');
             void render();
           }) }) : h('span'))));
 

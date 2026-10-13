@@ -10,6 +10,7 @@ import { ensurePaths, AppPaths } from './paths';
 import { Logger } from './logger';
 import { MusicCatalog } from './library-music';
 import { VideoCatalog } from './library-videos';
+import { ImageLibrary } from './library-images';
 import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
@@ -86,6 +87,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
 
   const music = new MusicCatalog(paths, log);
   const videos = new VideoCatalog(paths, log);
+  const images = new ImageLibrary(paths, log);
   const playlists = new PlaylistManager(paths);
   const soundboard = new SoundboardManager(paths);
   const quick = new QuickManager(paths);
@@ -145,6 +147,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     ws: null as unknown as WsHub, // заполняется ниже
     music,
     videos,
+    images,
     playlists,
     soundboard,
     quick,
@@ -179,6 +182,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
       return [
         ...s.musicFolders,
         ...s.videoFolders,
+        ...s.imageFolders,
         paths.soundFiles,
         paths.exports,
         paths.covers,
@@ -290,7 +294,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     ctx,
     async close(): Promise<void> {
       log.info('Остановка сервера...');
-      try { music.saveNow(); videos.saveNow(); playlists.saveNow(); soundboard.saveNow(); quick.saveNow(); } catch { /* ignore */ }
+      try { music.saveNow(); videos.saveNow(); images.saveNow(); playlists.saveNow(); soundboard.saveNow(); quick.saveNow(); } catch { /* ignore */ }
       try { await ws.close(); } catch { /* ignore */ }
       await new Promise<void>((resolve) => {
         httpServer.close(() => resolve());

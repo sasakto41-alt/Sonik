@@ -1,5 +1,5 @@
 import { dialog, shell } from 'electron';
-import { ElectronBridge, AUDIO_EXTS, VIDEO_EXTS } from '../shared/types';
+import { ElectronBridge, AUDIO_EXTS, VIDEO_EXTS, IMAGE_EXTS } from '../shared/types';
 import { listDisplays, findDisplay, moveWindowToDisplay } from './displays';
 import { StageWindowManager } from './windows';
 import { registerHotkeys, clearHotkeys } from './shortcuts';
@@ -17,6 +17,7 @@ export function createBridge(deps: BridgeDeps): ElectronBridge {
   const audioFilters = [{ name: 'Аудио', extensions: AUDIO_EXTS.map(x => x.slice(1)) }, { name: 'Все файлы', extensions: ['*'] }];
   const videoFilters = [{ name: 'Видео', extensions: VIDEO_EXTS.map(x => x.slice(1)) }, { name: 'Все файлы', extensions: ['*'] }];
   const soundFilters = [{ name: 'Аудио', extensions: ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'] }, { name: 'Все файлы', extensions: ['*'] }];
+  const imageFilters = [{ name: 'Изображения', extensions: IMAGE_EXTS.map(x => x.slice(1)) }, { name: 'Все файлы', extensions: ['*'] }];
 
   let bridgeCallbacks: {
     onDisplayRemoved: () => void;
@@ -68,6 +69,7 @@ export function createBridge(deps: BridgeDeps): ElectronBridge {
         kind === 'music' ? audioFilters :
         kind === 'video' ? videoFilters :
         kind === 'sound' ? soundFilters :
+        kind === 'image' ? imageFilters :
         [{ name: 'Все файлы', extensions: ['*'] }];
       const r = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters });
       return r.canceled ? [] : r.filePaths;

@@ -12,7 +12,8 @@ export class AppState {
   };
 
   stage: StageState = {
-    status: 'idle', videoId: null, videoTitle: '', position: 0, duration: 0,
+    status: 'idle', videoId: null, videoTitle: '', imageId: null, imageTitle: '',
+    position: 0, duration: 0,
     volume: 1, muted: false, repeat: false, playlist: [], playlistIndex: -1,
     displayId: null, pendingDisplayId: null, fullscreen: false, blacked: false,
     splash: true, activeFade: null, fadeIn: 0, fadeOut: 0, windowOpen: false,

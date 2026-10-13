@@ -249,6 +249,75 @@ test('Быстрый режим: конфиг по умолчанию выклю
   assert.equal(fin.config.enabled, false);
 });
 
+test('Картинки для сцены: добавление, скан, стриминг, показ на экране', async () => {
+  // Готовим папку с двумя PNG (валидный 1x1 пиксель)
+  const imgDir = path.join(dataDir, 'mypics');
+  fs.mkdirSync(imgDir, { recursive: true });
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64');
+  const picA = path.join(imgDir, 'backdrop.png');
+  const picB = path.join(imgDir, 'инфо.jpg');
+  fs.writeFileSync(picA, png);
+  fs.writeFileSync(picB, png);
+
+  // Папка — в настройки, затем файлы через проводник
+  await fetch(url('/api/settings'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageFolders: [imgDir] })
+  });
+  const add = await jpost<{ added: number; updated: number; errors: string[] }>('/api/images/files', { paths: [picA, picA] });
+  assert.equal(add.status, 200);
+  assert.equal(add.added, 1, 'дубликат не добавляется второй раз');
+  assert.equal(add.updated, 1);
+
+  // Скан папки находит второй файл
+  const scan = await jpost<{ added: number; errors: string[] }>('/api/images/scan', {});
+  assert.equal(scan.status, 200);
+  assert.equal(scan.added, 1);
+
+  const list = await jget<{ images: { id: string; title: string }[] }>('/api/images');
+  assert.equal(list.images.length, 2);
+  const id = list.images.find(i => i.title === 'backdrop')!.id;
+
+  // Стриминг из папки библиотеки разрешён
+  const media = await fetch(url(`/api/media/image/${id}`));
+  assert.equal(media.status, 200);
+
+  // Чужой id → 404
+  const nope = await fetch(url('/api/media/image/не-существует'));
+  assert.equal(nope.status, 404);
+
+  // Показ на сцене и скрытие
+  const show = await jpost<{ ok: boolean }>('/api/stage/command', { action: 'showImage', payload: { imageId: id } });
+  assert.equal(show.status, 200);
+  const st1 = await jget<{ stage: { imageId: string | null; imageTitle: string } }>('/api/state');
+  assert.equal(st1.stage.imageId, id);
+  assert.equal(st1.stage.imageTitle, 'backdrop');
+
+  const hide = await jpost<{ ok: boolean }>('/api/stage/command', { action: 'hideImage' });
+  assert.equal(hide.status, 200);
+  const st2 = await jget<{ stage: { imageId: string | null; blacked: boolean } }>('/api/state');
+  assert.equal(st2.stage.imageId, null);
+  assert.equal(st2.stage.blacked, true, 'после скрытия картинки — чёрный экран');
+
+  // Несуществующая картинка → понятная ошибка
+  const bad = await jpost<{ status: number; error?: string }>('/api/stage/command', { action: 'showImage', payload: { imageId: 'нет' } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.error || '', /не найдена/i);
+
+  // Скрытие без показанной картинки → ошибка
+  const hideAgain = await jpost<{ status: number }>('/api/stage/command', { action: 'hideImage' });
+  assert.equal(hideAgain.status, 400);
+
+  // Удаление из списка
+  const del = await fetch(url(`/api/images/${id}`), { method: 'DELETE' });
+  assert.equal(del.status, 200);
+  const list2 = await jget<{ images: unknown[] }>('/api/images');
+  assert.equal(list2.images.length, 1);
+});
+
 test('Резервная копия содержит конфигурации', async () => {
   const r = await fetch(url('/api/system/backup'));
   assert.equal(r.status, 200);
