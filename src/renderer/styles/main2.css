@@ -554,3 +554,43 @@ input[type=range] { accent-color: var(--accent); cursor: pointer; }
 @media (max-width: 640px) {
   .quick-grid { grid-auto-rows: 130px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
+
+/* ─── Устройства вывода (телефон, планшет, ТВ) ─── */
+
+.devices-box { margin-bottom: 6px; }
+.device-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+.device-card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 15px; border-radius: var(--radius);
+  background: var(--bg-card); border: 1.5px solid var(--border); color: var(--text);
+}
+.device-card.online { border-color: var(--success); }
+.device-card.staging { border-color: var(--accent); background: var(--accent-soft); }
+.device-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.device-icon { color: var(--accent-bright); display: grid; place-items: center; }
+.device-icon svg { width: 20px; height: 20px; }
+.device-name { font-weight: 650; }
+.device-type { color: var(--text-muted); font-size: 12px; }
+.device-status { margin-left: auto; font-size: 12px; white-space: nowrap; }
+.device-status.ok { color: var(--success); }
+.device-status.off { color: var(--text-muted); }
+.device-badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.badge.ok { background: rgba(52, 211, 153, 0.14); color: var(--success); }
+.badge.ok svg { width: 11px; height: 11px; vertical-align: -1px; }
+.badge.accent { background: var(--accent); color: #fff; }
+
+/* ─── Страница сцены (stage.html) в браузере: подсказка запуска и выход ─── */
+
+#stage-tap {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 60; padding: 14px 26px; border: none; border-radius: 999px;
+  background: var(--accent); color: #fff; font-size: 16px; font-weight: 600;
+  cursor: pointer; box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+#stage-exit {
+  position: absolute; left: 14px; top: 14px; z-index: 55;
+  padding: 7px 14px; border-radius: 999px; text-decoration: none;
+  background: rgba(0,0,0,0.45); color: rgba(255,255,255,0.75);
+  font-size: 13px; opacity: 0.35; transition: opacity .2s;
+}
+#stage-exit:hover { opacity: 1; color: #fff; }

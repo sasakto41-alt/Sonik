@@ -19,6 +19,19 @@ export function isElectron(): boolean {
   return Boolean((window as { sonicDesktop?: unknown }).sonicDesktop);
 }
 
+/** Постоянный идентификатор этого браузера/устройства (для меню устройств на сервере). */
+export function deviceId(): string {
+  let id = localStorage.getItem('sonic.deviceId');
+  if (!id) {
+    const rnd = (window.crypto && 'randomUUID' in window.crypto)
+      ? window.crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+    id = 'dev-' + rnd;
+    localStorage.setItem('sonic.deviceId', id);
+  }
+  return id;
+}
+
 export function mediaUrl(p: string): string {
   const token = getToken();
   const sep = p.includes('?') ? '&' : '?';
@@ -28,8 +41,11 @@ export function mediaUrl(p: string): string {
 export function wsUrl(): string {
   const base = API_BASE || (location.protocol === 'https:' ? 'wss://' + location.host : 'ws://' + location.host);
   const wsBase = base.replace(/^http/, 'ws');
+  const params = new URLSearchParams();
   const token = getToken();
-  return wsBase + '/ws' + (token ? `?token=${encodeURIComponent(token)}` : '');
+  if (token) params.set('token', token);
+  params.set('device', deviceId());
+  return wsBase + '/ws?' + params.toString();
 }
 
 export class ApiError extends Error {
@@ -48,6 +64,7 @@ async function request<T>(method: string, path: string, body?: unknown, raw = fa
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers['x-auth-token'] = token;
+  headers['x-device-id'] = deviceId();
   let payload: BodyInit | undefined;
   if (body !== undefined) {
     if (raw) {
@@ -87,6 +104,6 @@ export const api = {
 };
 
 export async function login(pin: string): Promise<void> {
-  const r = await request<{ ok: true; token: string }>('POST', '/api/auth/login', { pin });
+  const r = await request<{ ok: true; token: string }>('POST', '/api/auth/login', { pin, deviceId: deviceId() });
   setToken(r.token);
 }

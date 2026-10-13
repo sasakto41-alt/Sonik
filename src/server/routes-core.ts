@@ -27,6 +27,16 @@ export function registerCoreRoutes(app: express.Express, ctx: ServerContext): vo
     const pin = String((req.body as { pin?: unknown })?.pin || '');
     if (pin && pin === ctx.settings.data.lanPin) {
       loginGuard.reset(ip);
+      // Устройство регистрируется автоматически при первом входе и сохраняется
+      const deviceId = String((req.body as { deviceId?: unknown })?.deviceId
+        || req.headers['x-device-id'] || '').slice(0, 64);
+      if (deviceId) {
+        const d = ctx.devices.touch(deviceId, {
+          ua: String(req.headers['user-agent'] || ''),
+          ip
+        });
+        ctx.log.info(`Устройство вошло на сайт: ${d.name} (${ip})`);
+      }
       return res.json({ ok: true, token: ctx.settings.data.lanToken });
     }
     loginGuard.fail(ip);

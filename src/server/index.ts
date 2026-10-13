@@ -15,6 +15,7 @@ import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
 import { QuickManager } from './quick';
+import { DeviceManager } from './devices';
 import { ServerContext } from './context';
 import { createAuthMiddleware, isLoopback } from './security';
 import { resolveDataDir } from './paths';
@@ -91,6 +92,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   const playlists = new PlaylistManager(paths);
   const soundboard = new SoundboardManager(paths);
   const quick = new QuickManager(paths);
+  const devices = new DeviceManager(paths, () => settings.data.lanPin);
 
   // Определяем порт: из настроек или указанный
   let port = opts.port ?? settings.data.port;
@@ -151,6 +153,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     playlists,
     soundboard,
     quick,
+    devices,
     stage: null as unknown as StageController,
     bridge,
     ffmpeg: detectFfmpeg(),
@@ -203,6 +206,9 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   };
   ctx.stage = new StageController(ctx);
 
+  // Устройства в снимке состояния: список + флаги online/showsStage
+  store.devicesProvider = () => ctx.devices.withOnline(ctx.ws.onlineDeviceIds(), ctx.ws.stageDeviceIds());
+
   registerCoreRoutes(app, ctx);
   registerExtraRoutes(app, ctx);
 
@@ -243,11 +249,23 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   }
 
   const httpServer = http.createServer(app);
+  // Дебаунс-рассылка снимка при подключении/отключении устройств
+  let devBcastTimer: NodeJS.Timeout | null = null;
+  const scheduleDeviceBroadcast = (): void => {
+    if (devBcastTimer) return;
+    devBcastTimer = setTimeout(() => { devBcastTimer = null; ctx.broadcastSnapshot(); }, 250);
+  };
   const ws = new WsHub(httpServer, (req) => {
     if (isLoopbackHttp(req)) return true;
     if (!settings.data.lanEnabled) return false;
     const url = new URL(req.url || '/', 'http://localhost');
     return url.searchParams.get('token') === settings.data.lanToken;
+  }, (client, connected) => {
+    if (client.loopback || !client.deviceId) return;
+    // Устройство создаётся/обновляется автоматически и сразу сохраняется
+    ctx.devices.touch(client.deviceId, { ua: client.ua, ip: client.ip });
+    if (connected) log.info(`Устройство подключилось: ${ctx.devices.byId(client.deviceId)?.name || client.deviceId} (${client.ip})`);
+    scheduleDeviceBroadcast();
   });
   ctx.ws = ws;
 
@@ -294,7 +312,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     ctx,
     async close(): Promise<void> {
       log.info('Остановка сервера...');
-      try { music.saveNow(); videos.saveNow(); images.saveNow(); playlists.saveNow(); soundboard.saveNow(); quick.saveNow(); } catch { /* ignore */ }
+      try { music.saveNow(); videos.saveNow(); images.saveNow(); playlists.saveNow(); soundboard.saveNow(); quick.saveNow(); devices.saveNow(); } catch { /* ignore */ }
       try { await ws.close(); } catch { /* ignore */ }
       await new Promise<void>((resolve) => {
         httpServer.close(() => resolve());

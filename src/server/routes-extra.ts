@@ -385,6 +385,63 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
     res.json({ logs: ctx.log.tail(lines) });
   }));
 
+  // ─── Устройства вывода (телефон, планшет, ТВ) ───
+
+  app.get('/api/devices', ah(async (_req, res) => {
+    res.json({ devices: ctx.store.snapshot(systemInfo(ctx)).devices });
+  }));
+
+  app.post('/api/devices/pair', express.json({ limit: '16kb' }), ah(async (req, res) => {
+    const body = (req.body || {}) as { id?: unknown; pin?: unknown };
+    const id = String(body.id || '');
+    const pin = String(body.pin || '').trim();
+    if (!id) return fail(res, 400, 'Не указано устройство');
+    if (!pin) return fail(res, 400, 'Введите код подключения');
+    const r = ctx.devices.pair(id, pin);
+    if (!r.ok) {
+      ctx.log.warn(`Подключение устройства отклонено: ${r.error}`);
+      return fail(res, 400, r.error || 'Не удалось подключить устройство');
+    }
+    ctx.log.info(`Устройство подключено (пара): ${r.device?.name || id}`);
+    ctx.broadcastSnapshot();
+    res.json({ ok: true, device: r.device });
+  }));
+
+  app.post('/api/devices/:id/unpair', ah(async (req, res) => {
+    const d = ctx.devices.unpair(req.params.id);
+    if (!d) return fail(res, 404, 'Устройство не найдено');
+    ctx.broadcastSnapshot();
+    res.json({ ok: true, device: d });
+  }));
+
+  app.post('/api/devices/:id/rename', express.json({ limit: '16kb' }), ah(async (req, res) => {
+    const name = String((req.body as { name?: unknown })?.name || '');
+    const d = ctx.devices.rename(req.params.id, name);
+    if (!d) return fail(res, 400, 'Не удалось переименовать: устройство не найдено или имя пустое');
+    ctx.broadcastSnapshot();
+    res.json({ ok: true, device: d });
+  }));
+
+  app.delete('/api/devices/:id', ah(async (req, res) => {
+    const ok = ctx.devices.remove(req.params.id);
+    if (!ok) return fail(res, 404, 'Устройство не найдено');
+    ctx.broadcastSnapshot();
+    res.json({ ok: true });
+  }));
+
+  /** Вывести сцену на устройство: его браузер переключается на экран сцены. */
+  app.post('/api/devices/:id/output', ah(async (req, res) => {
+    const d = ctx.devices.byId(req.params.id);
+    if (!d) return fail(res, 404, 'Устройство не найдено');
+    if (!d.paired) return fail(res, 400, 'Сначала подключите устройство кодом');
+    const sent = ctx.ws.sendToDevice(req.params.id, {
+      type: 'command', target: 'renderer', domain: 'stage', action: 'showStageOutput'
+    });
+    if (!sent) return fail(res, 409, 'Устройство не в сети. Откройте на нём сайт Sonic Studio и повторите.');
+    ctx.log.info(`Сцена выведена на устройство: ${d.name}`);
+    res.json({ ok: true });
+  }));
+
   app.get('/api/system/backup', ah(async (_req, res) => {
     const backup = {
       kind: 'sonic-studio-backup',

@@ -154,6 +154,10 @@ function bindStore(): void {
         document.dispatchEvent(new CustomEvent('sonic:eq', { detail: e.payload }));
       } else if (e.target === 'all' && e.domain === 'soundboard') {
         document.dispatchEvent(new CustomEvent('sonic:soundboard', { detail: { action: e.action, payload: e.payload } }));
+      } else if (e.target === 'renderer' && e.domain === 'stage' && e.action === 'showStageOutput' && !isElectron()) {
+        // Это устройство стало экраном сценического вывода: открываем страницу сцены
+        // (токен уже в localStorage — сцена подключится и будет показывать вывод)
+        location.href = 'stage.html';
       }
       // target=stage обрабатывается страницей сцены (stage/main.ts)
     }

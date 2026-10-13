@@ -27,6 +27,8 @@ export class AppState {
   scan: ScanStatus = { active: false, kind: null, processed: 0, total: 0, current: '', errors: [] };
   displays: DisplayInfo[] = [];
   revisions: LibraryRevisions = { music: 1, videos: 1, playlists: 1, videoPlaylists: 1, soundboard: 1, settings: 1, history: 1 };
+  /** Поставщик списка устройств (заполняется в index.ts). */
+  devicesProvider: (() => import('../shared/types').DeviceEntry[]) | null = null;
   private version = 1;
 
   constructor(eqStore: JsonStore<EqState>) {
@@ -55,6 +57,7 @@ export class AppState {
       stage: { ...this.stage, updatedAt: Date.now() },
       eq: { ...this.eq, gains: [...this.eq.gains], customPresets: this.eq.customPresets.map(p => ({ ...p, gains: [...p.gains] })) },
       displays: this.displays.map(d => ({ ...d })),
+      devices: this.devicesProvider ? this.devicesProvider().map(d => ({ ...d })) : [],
       scan: { ...this.scan, errors: [...this.scan.errors] },
       system,
       revisions: { ...this.revisions }

@@ -236,12 +236,34 @@ export interface LibraryRevisions {
   history: number;
 }
 
+// ─── Устройства вывода (телефон, планшет, ТВ — веб-клиенты сайта) ───────────
+
+export type DeviceType = 'phone' | 'tablet' | 'desktop' | 'tv' | 'web';
+
+/** Устройство, подключавшееся к сайту Sonic Studio. Создаётся автоматически. */
+export interface DeviceEntry {
+  id: string;            // клиентский идентификатор (localStorage браузера устройства)
+  name: string;          // «Android-телефон», «iPhone», «Windows-ПК»…
+  type: DeviceType;
+  ua: string;
+  ip: string;
+  firstSeen: number;
+  lastSeen: number;
+  paired: boolean;       // подтверждено кодом (PIN)
+  pairedAt: number | null;
+  /** Вычисляется на сервере: сейчас в сети. */
+  online: boolean;
+  /** Вычисляется на сервере: устройство сейчас показывает сцену (открыт stage-экран). */
+  showsStage: boolean;
+}
+
 export interface Snapshot {
   version: number;
   player: PlayerState;
   stage: StageState;
   eq: EqState;
   displays: DisplayInfo[];
+  devices: DeviceEntry[];
   scan: ScanStatus;
   system: SystemInfo;
   revisions: LibraryRevisions;

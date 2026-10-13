@@ -11,6 +11,7 @@ import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
 import { QuickManager } from './quick';
+import { DeviceManager } from './devices';
 
 /**
  * Общий контекст сервера — передаётся во все модули и маршруты.
@@ -29,6 +30,7 @@ export interface ServerContext {
   playlists: PlaylistManager;
   soundboard: SoundboardManager;
   quick: QuickManager;
+  devices: DeviceManager;
   stage: StageController;
   bridge: ElectronBridge | null;
   ffmpeg: { available: boolean; path: string | null };

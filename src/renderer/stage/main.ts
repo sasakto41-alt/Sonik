@@ -1,5 +1,5 @@
 import { VideoItem } from '../../shared/types';
-import { api, mediaUrl } from '../api';
+import { api, mediaUrl, deviceId, isElectron } from '../api';
 
 /**
  * Окно сценического вывода (Stage Output).
@@ -19,6 +19,8 @@ const splashLayer = document.getElementById('stage-splash') as HTMLElement;
 const splashText = document.getElementById('splash-text') as HTMLElement;
 const textLayer = document.getElementById('stage-text') as HTMLElement;
 const blackLayer = document.getElementById('stage-black') as HTMLElement;
+const tapLayer = document.getElementById('stage-tap') as HTMLButtonElement;
+const exitChip = document.getElementById('stage-exit') as HTMLAnchorElement;
 
 let currentItem: VideoItem | null = null;
 let activeEl: HTMLVideoElement = videoA;
@@ -31,18 +33,48 @@ let splashVisible = true;
 let reportTimer = 0;
 let endHandled = false;
 let ws: WebSocket | null = null;
+let pendingPlay: HTMLVideoElement | null = null;
 let settings = {
   crossfadeDuration: 2,
   splashEnabled: true,
   splashText: 'Sonic Studio'
 };
 
+// ─── Автозапуск в браузерах (телефон/планшет): если браузер запретил — просим нажатие ───
+
+function showTapLayer(el: HTMLVideoElement): void {
+  pendingPlay = el;
+  tapLayer.classList.remove('hidden');
+}
+
+tapLayer.addEventListener('click', () => {
+  tapLayer.classList.add('hidden');
+  const el = pendingPlay;
+  pendingPlay = null;
+  if (el) void el.play().catch(() => showTapLayer(el));
+});
+
+/** Запуск воспроизведения с обработкой запрета автозапуска (мобильные браузеры). */
+async function ensurePlay(el: HTMLVideoElement): Promise<boolean> {
+  try {
+    await el.play();
+    return true;
+  } catch {
+    showTapLayer(el);
+    return false;
+  }
+}
+
 // ─── WebSocket ───
 
 function connect(): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const token = new URLSearchParams(location.search).get('token') || localStorage.getItem('sonic.token') || '';
-  ws = new WebSocket(`${proto}://${location.host}/ws?role=stage${token ? '&token=' + encodeURIComponent(token) : ''}`);
+  const params = new URLSearchParams();
+  params.set('role', 'stage');
+  if (token) params.set('token', token);
+  params.set('device', deviceId());
+  ws = new WebSocket(`${proto}://${location.host}/ws?${params.toString()}`);
   ws.onopen = () => {
     void loadSettings();
   };
@@ -175,6 +207,8 @@ async function handleCommand(action: string, payload: Record<string, unknown>): 
         }
         send({ status: 'playing', duration: activeEl.duration || 0 });
       } catch {
+        // Браузер запретил автозапуск — покажем «Нажмите, чтобы включить показ»
+        showTapLayer(activeEl);
         send({ status: 'paused' });
       }
       break;
@@ -183,8 +217,8 @@ async function handleCommand(action: string, payload: Record<string, unknown>): 
       blacked = false;
       blackLayer.style.opacity = '0';
       showSplash(false);
-      try {
-        await activeEl.play();
+      const started = await ensurePlay(activeEl);
+      if (started) {
         if (currentItem && currentItem.fadeIn > 0 && activeEl.currentTime <= (currentItem.startPosition || 0) + 0.2) {
           fadeDirection = 'in';
           send({ activeFade: 'in' });
@@ -192,14 +226,14 @@ async function handleCommand(action: string, payload: Record<string, unknown>): 
         } else {
           applyInstant(activeEl, 1);
         }
-      } catch { /* ignore */ }
+      }
       break;
     }
     case 'pause':
       activeEl.pause();
       break;
     case 'resume':
-      void activeEl.play().catch(() => {});
+      void ensurePlay(activeEl);
       break;
     case 'stopNow': {
       // Мгновенная остановка и безопасный чёрный экран
@@ -258,7 +292,7 @@ async function handleCommand(action: string, payload: Record<string, unknown>): 
       blacked = false;
       blackLayer.style.opacity = '0';
       applyInstant(activeEl, 1);
-      if (wasPlayingBeforeBlack) void activeEl.play().catch(() => {});
+      if (wasPlayingBeforeBlack) void ensurePlay(activeEl);
       break;
     }
     case 'fadeIn': {
@@ -380,7 +414,8 @@ async function crossfadeTo(videoId: string, dur: number, volume: number, muted: 
   nextEl.muted = muted;
   applyInstant(nextEl, 0);
   try {
-    await nextEl.play();
+    const ok = await ensurePlay(nextEl);
+    if (!ok) return; // ждём нажатия пользователя — старт продолжится по команде play
     const prevEl = activeEl;
     activeEl = nextEl;
     standbyEl = prevEl;
@@ -468,6 +503,8 @@ window.addEventListener('keydown', (e) => {
 
 // Заставка по умолчанию
 splashText.textContent = settings.splashText;
+// Веб-устройства (телефон/планшет/ТВ): кнопка возврата к интерфейсу
+if (!isElectron()) exitChip.classList.remove('hidden');
 connect();
 startReporting();
 void api.get<{ snapshot?: unknown }>('/api/state').catch(() => {});
