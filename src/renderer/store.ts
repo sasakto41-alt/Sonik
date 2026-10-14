@@ -1,17 +1,16 @@
 import { Snapshot } from '../shared/types';
-import { api, wsUrl, getToken, setToken } from './api';
+import { api, wsUrl } from './api';
 
 /**
- * Клиентский store: снимок состояния с сервера + WebSocket с автопереподключением.
- * Статус «Нет соединения» показывается до восстановления связи.
+ * Клиентский store: снимок состояния внутреннего сервера + WebSocket с автопереподключением.
+ * Состояние соединения показывается маленькой точкой в шапке — без баннеров и тостов.
  */
 
 export type StoreEvent =
   | { type: 'snapshot'; snapshot: Snapshot }
   | { type: 'connected' }
   | { type: 'disconnected' }
-  | { type: 'command'; target: string; domain: string; action: string; payload?: unknown }
-  | { type: 'auth' };
+  | { type: 'command'; target: string; domain: string; action: string; payload?: unknown };
 
 type Listener = (e: StoreEvent) => void;
 
@@ -77,14 +76,9 @@ class Store {
         }
       } catch { /* некорректный кадр игнорируем */ }
     };
-    ws.onclose = (ev) => {
+    ws.onclose = () => {
       this.connected = false;
       this.emitEvent({ type: 'disconnected' });
-      if (ev.code === 4401) {
-        setToken('');
-        this.emitEvent({ type: 'auth' });
-        return;
-      }
       this.scheduleReconnect();
     };
     ws.onerror = () => {
@@ -127,4 +121,3 @@ export function localPref(key: string, def: string): string {
 export function setLocalPref(key: string, value: string): void {
   localStorage.setItem('sonic.pref.' + key, value);
 }
-export { getToken };

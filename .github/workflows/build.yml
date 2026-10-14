@@ -1,0 +1,65 @@
+name: Build Windows exe
+
+# Собирает SonicStudio-Portable-*.exe (один файл, без установки) и
+# SonicStudio-Setup-*.exe (установщик) и публикует их в GitHub Releases
+# с тегом latest: https://github.com/sasakto41-alt/Sonik/releases/latest
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Build renderer + main
+        run: npm run build
+
+      - name: Build portable exe and setup exe
+        run: npx electron-builder --win portable nsis
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move "latest" tag
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f latest ${{ github.sha }}
+          git push -f origin latest
+
+      - name: Publish to GitHub Releases (tag latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Sonic Studio — последняя сборка
+          body: |
+            Скачайте **SonicStudio-Portable-*.exe**, если хотите просто запустить без установки,
+            или **SonicStudio-Setup-*.exe**, чтобы установить программу с ярлыком на рабочем столе.
+          files: |
+            release/SonicStudio-Portable-*.exe
+            release/SonicStudio-Setup-*.exe
+          allow_updates: true
+          fail_on_unmatched_files: true

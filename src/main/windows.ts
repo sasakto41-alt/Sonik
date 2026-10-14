@@ -7,6 +7,19 @@ import { moveWindowToDisplay } from './displays';
  * В окне сцены нет никакого интерфейса управления — только контент для зрителей.
  */
 
+/**
+ * Загрузка окна с повторной попыткой: если внутренний сервер ещё поднимается,
+ * отказ загрузки не остаётся необработанным (раньше это роняло приложение).
+ */
+function loadWithRetry(win: BrowserWindow, url: string, attempt = 0): void {
+  win.loadURL(url).catch((err) => {
+    console.error(`[Sonic] Не удалось загрузить ${url}: ${(err as Error).message}`);
+    if (attempt < 5 && !win.isDestroyed()) {
+      setTimeout(() => { if (!win.isDestroyed()) loadWithRetry(win, url, attempt + 1); }, 1000);
+    }
+  });
+}
+
 export function createMainWindow(opts: { port: number; isDev: boolean; devUrl: string | null }): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -28,10 +41,10 @@ export function createMainWindow(opts: { port: number; isDev: boolean; devUrl: s
   });
 
   if (opts.isDev && opts.devUrl) {
-    void win.loadURL(opts.devUrl);
+    loadWithRetry(win, opts.devUrl);
     win.webContents.openDevTools({ mode: 'bottom' });
   } else {
-    void win.loadURL(`http://127.0.0.1:${opts.port}/`);
+    loadWithRetry(win, `http://127.0.0.1:${opts.port}/`);
   }
 
   win.once('ready-to-show', () => win.show());
@@ -68,7 +81,7 @@ export class StageWindowManager {
         spellcheck: false
       }
     });
-    void this.win.loadURL(`http://127.0.0.1:${this.getPort()}/stage.html`);
+    void loadWithRetry(this.win, `http://127.0.0.1:${this.getPort()}/stage.html`);
     this.win.once('ready-to-show', () => {
       this.win?.show();
     });

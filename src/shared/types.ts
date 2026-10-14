@@ -219,9 +219,6 @@ export interface SystemInfo {
   ip: string;
   port: number;
   url: string;
-  lanUrl: string | null;
-  lanEnabled: boolean;
-  pin: string;
   ffmpeg: boolean;
   startedAt: number;
 }
@@ -236,34 +233,12 @@ export interface LibraryRevisions {
   history: number;
 }
 
-// ─── Устройства вывода (телефон, планшет, ТВ — веб-клиенты сайта) ───────────
-
-export type DeviceType = 'phone' | 'tablet' | 'desktop' | 'tv' | 'web';
-
-/** Устройство, подключавшееся к сайту Sonic Studio. Создаётся автоматически. */
-export interface DeviceEntry {
-  id: string;            // клиентский идентификатор (localStorage браузера устройства)
-  name: string;          // «Android-телефон», «iPhone», «Windows-ПК»…
-  type: DeviceType;
-  ua: string;
-  ip: string;
-  firstSeen: number;
-  lastSeen: number;
-  paired: boolean;       // подтверждено кодом (PIN)
-  pairedAt: number | null;
-  /** Вычисляется на сервере: сейчас в сети. */
-  online: boolean;
-  /** Вычисляется на сервере: устройство сейчас показывает сцену (открыт stage-экран). */
-  showsStage: boolean;
-}
-
 export interface Snapshot {
   version: number;
   player: PlayerState;
   stage: StageState;
   eq: EqState;
   displays: DisplayInfo[];
-  devices: DeviceEntry[];
   scan: ScanStatus;
   system: SystemInfo;
   revisions: LibraryRevisions;
@@ -273,9 +248,6 @@ export interface Snapshot {
 
 export interface Settings {
   port: number;
-  lanEnabled: boolean;
-  lanPin: string;
-  lanToken: string;
   musicFolders: string[];
   videoFolders: string[];
   imageFolders: string[];
@@ -291,40 +263,6 @@ export interface Settings {
   crossfade: { enabled: boolean; duration: number };
   splash: { enabled: boolean; text: string; imagePath: string };
   player: { volume: number; muted: boolean; shuffle: boolean; repeat: RepeatMode };
-}
-
-// ─── Быстрый режим ───────────────────────────────────────────────────────────
-
-export type QuickTileKind = 'action' | 'track' | 'playlist' | 'sound' | 'section';
-/** s = 1×1, m = 2×1, l = 2×2 в сетке быстрого режима. */
-export type QuickTileSize = 's' | 'm' | 'l';
-
-export type QuickPlayerAction =
-  | 'playPause' | 'next' | 'prev' | 'stop' | 'volume'
-  | 'repeat' | 'shuffle' | 'stopAllSounds';
-
-export type QuickSectionTarget =
-  | 'home' | 'music' | 'playlists' | 'videos' | 'soundboard' | 'editor'
-  | 'equalizer' | 'visualizer' | 'stage' | 'settings'
-  | 'stageBlack' | 'stageRestore' | 'stageStop';
-
-export interface QuickTile {
-  id: string;
-  kind: QuickTileKind;
-  size: QuickTileSize;
-  /** kind = 'action' */
-  action?: QuickPlayerAction;
-  /** kind = 'section' */
-  section?: QuickSectionTarget;
-  /** kind = 'track' | 'playlist' | 'sound' — id объекта из библиотеки */
-  refId?: string;
-  /** Пользовательское название (необязательно, по умолчанию — из объекта) */
-  label?: string;
-}
-
-export interface QuickConfig {
-  enabled: boolean;
-  tiles: QuickTile[];
 }
 
 // ─── Мост Electron <-> сервер ────────────────────────────────────────────────

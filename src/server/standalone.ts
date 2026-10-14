@@ -1,5 +1,13 @@
 import { startSonicServer } from './index';
 
+// Фоновые ошибки не должны убивать сервер: логируем и продолжаем.
+process.on('uncaughtException', (err) => {
+  console.error('[Sonic] Ошибка перехвачена, сервер продолжает работать:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Sonic] Отклонение обещания перехвачено, сервер продолжает работать:', reason);
+});
+
 /**
  * Запуск сервера Sonic Studio без Electron (режим разработки/тестирования).
  * Использует: node dist/server/standalone.js [--port N] [--data-dir PATH]

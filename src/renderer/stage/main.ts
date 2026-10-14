@@ -1,10 +1,10 @@
 import { VideoItem } from '../../shared/types';
-import { api, mediaUrl, deviceId, isElectron } from '../api';
+import { api, mediaUrl } from '../api';
 
 /**
  * Окно сценического вывода (Stage Output).
  * Только контент для зрителей: видео, заставка, титры, чёрный экран.
- * Никакого интерфейса управления.
+ * Никакого интерфейса управления и никаких кнопок — открыл окно, и всё играет.
  *
  * Реализует настоящие визуальные переходы:
  *  - Fade In — плавное появление из чёрного (opacity + громкость);
@@ -19,8 +19,6 @@ const splashLayer = document.getElementById('stage-splash') as HTMLElement;
 const splashText = document.getElementById('splash-text') as HTMLElement;
 const textLayer = document.getElementById('stage-text') as HTMLElement;
 const blackLayer = document.getElementById('stage-black') as HTMLElement;
-const tapLayer = document.getElementById('stage-tap') as HTMLButtonElement;
-const exitChip = document.getElementById('stage-exit') as HTMLAnchorElement;
 
 let currentItem: VideoItem | null = null;
 let activeEl: HTMLVideoElement = videoA;
@@ -33,48 +31,32 @@ let splashVisible = true;
 let reportTimer = 0;
 let endHandled = false;
 let ws: WebSocket | null = null;
-let pendingPlay: HTMLVideoElement | null = null;
 let settings = {
   crossfadeDuration: 2,
   splashEnabled: true,
   splashText: 'Sonic Studio'
 };
 
-// ─── Автозапуск в браузерах (телефон/планшет): если браузер запретил — просим нажатие ───
-
-function showTapLayer(el: HTMLVideoElement): void {
-  pendingPlay = el;
-  tapLayer.classList.remove('hidden');
-}
-
-tapLayer.addEventListener('click', () => {
-  tapLayer.classList.add('hidden');
-  const el = pendingPlay;
-  pendingPlay = null;
-  if (el) void el.play().catch(() => showTapLayer(el));
-});
-
-/** Запуск воспроизведения с обработкой запрета автозапуска (мобильные браузеры). */
-async function ensurePlay(el: HTMLVideoElement): Promise<boolean> {
-  try {
-    await el.play();
-    return true;
-  } catch {
-    showTapLayer(el);
+/**
+ * Запуск воспроизведения без всяких кнопок: в приложении автозапуск разрешён.
+ * Если видео ещё не догрузилось — повторяем на 'canplay', молча.
+ */
+function ensurePlay(el: HTMLVideoElement): Promise<boolean> {
+  return el.play().then(() => true).catch(() => {
+    const once = (): void => {
+      el.removeEventListener('canplay', once);
+      void el.play().catch(() => { /* повторим по следующей команде play */ });
+    };
+    el.addEventListener('canplay', once);
     return false;
-  }
+  });
 }
 
 // ─── WebSocket ───
 
 function connect(): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const token = new URLSearchParams(location.search).get('token') || localStorage.getItem('sonic.token') || '';
-  const params = new URLSearchParams();
-  params.set('role', 'stage');
-  if (token) params.set('token', token);
-  params.set('device', deviceId());
-  ws = new WebSocket(`${proto}://${location.host}/ws?${params.toString()}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?role=stage`);
   ws.onopen = () => {
     void loadSettings();
   };
@@ -207,8 +189,8 @@ async function handleCommand(action: string, payload: Record<string, unknown>): 
         }
         send({ status: 'playing', duration: activeEl.duration || 0 });
       } catch {
-        // Браузер запретил автозапуск — покажем «Нажмите, чтобы включить показ»
-        showTapLayer(activeEl);
+        // Видео ещё не готово — ensurePlay подпишется на 'canplay' и запустит молча
+        ensurePlay(activeEl);
         send({ status: 'paused' });
       }
       break;
@@ -503,8 +485,6 @@ window.addEventListener('keydown', (e) => {
 
 // Заставка по умолчанию
 splashText.textContent = settings.splashText;
-// Веб-устройства (телефон/планшет/ТВ): кнопка возврата к интерфейсу
-if (!isElectron()) exitChip.classList.remove('hidden');
 connect();
 startReporting();
 void api.get<{ snapshot?: unknown }>('/api/state').catch(() => {});

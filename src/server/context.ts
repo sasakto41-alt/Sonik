@@ -1,7 +1,7 @@
 import { AppPaths } from './paths';
 import { Logger } from './logger';
 import { JsonStore } from './store';
-import { Settings, Snapshot, EqState, ElectronBridge } from '../shared/types';
+import { Settings, EqState, ElectronBridge } from '../shared/types';
 import { AppState } from './state';
 import { WsHub } from './ws';
 import { MusicCatalog } from './library-music';
@@ -10,8 +10,6 @@ import { ImageLibrary } from './library-images';
 import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
-import { QuickManager } from './quick';
-import { DeviceManager } from './devices';
 
 /**
  * Общий контекст сервера — передаётся во все модули и маршруты.
@@ -29,8 +27,6 @@ export interface ServerContext {
   images: ImageLibrary;
   playlists: PlaylistManager;
   soundboard: SoundboardManager;
-  quick: QuickManager;
-  devices: DeviceManager;
   stage: StageController;
   bridge: ElectronBridge | null;
   ffmpeg: { available: boolean; path: string | null };
@@ -39,8 +35,6 @@ export interface ServerContext {
   port: number;
   /** Текущий фактический порт слушателя. */
   setPort(p: number): void;
-  /** Перезапуск HTTP-слушателя на новом хосте/порту (WS-хаб сохраняется). */
-  restartListener(host: string, port: number): Promise<void>;
   allowedRoots(): string[];
   broadcastSnapshot(): void;
   toast(level: 'info' | 'success' | 'error', message: string): void;

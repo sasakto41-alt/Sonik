@@ -36,20 +36,47 @@ export class JsonStore<T extends object> {
     if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.saveNow();
+      // ФОНОВОЕ сохранение НИКОГДА не бросает исключений: на Windows антивирус
+      // может кратковременно блокировать файл. Падение здесь убивало весь сервер
+      // (главное окно продолжало работать из кэша — «Нет соединения с сервером»).
+      this.saveSafe();
     }, this.delayMs);
   }
 
-  saveNow(): void {
-    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+  /** Фоновое сохранение: без исключений, до 5 повторов при блокировке файла. */
+  saveSafe(): void {
+    if (this.tryWrite()) return;
+    let attempts = 0;
+    const retry = (): void => {
+      if (this.tryWrite() || ++attempts >= 5) return;
+      const t = setTimeout(retry, 250 * (attempts + 1));
+      (t as unknown as { unref?: () => void }).unref?.();
+    };
+    const t = setTimeout(retry, 250);
+    (t as unknown as { unref?: () => void }).unref?.();
+  }
+
+  private tryWrite(): boolean {
     try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      const tmp = this.file + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify(this._data, null, 2), 'utf8');
-      fs.renameSync(tmp, this.file);
+      this.writeSync();
+      return true;
     } catch (err) {
-      throw new Error(`Не удалось сохранить настройки (${(err as Error).message})`);
+      console.warn(`[Sonic] Сохранение не удалось, будет повтор: ${(err as Error).message} (${this.file})`);
+      return false;
     }
+  }
+
+  private writeSync(): void {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    const tmp = this.file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(this._data, null, 2), 'utf8');
+    fs.renameSync(tmp, this.file);
+  }
+
+  /** Синхронная запись. Бросает исключение — вызывайте в try/catch. */
+  saveNow(): void {
+    this.writeSync();
   }
 
   private load(): T {

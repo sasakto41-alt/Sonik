@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { safeResolve, LoginGuard } from '../dist/server/security';
+import { safeResolve } from '../dist/server/security';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -34,18 +34,4 @@ test('safeResolve: принимает вложенные корни и сам к
   const root = path.join(os.tmpdir(), 'root3');
   assert.ok(safeResolve([root], root));
   assert.ok(safeResolve([root], path.join(root, 'a', 'b', 'c.mp3')));
-});
-
-test('LoginGuard: блокировка после 5 неудачных попыток', () => {
-  const guard = new LoginGuard();
-  const ip = '192.168.1.55';
-  for (let i = 0; i < 5; i++) {
-    assert.ok(guard.canAttempt(ip).ok);
-    guard.fail(ip);
-  }
-  const attempt = guard.canAttempt(ip);
-  assert.equal(attempt.ok, false);
-  assert.ok(attempt.retryAfterSec > 0);
-  guard.reset(ip);
-  assert.ok(guard.canAttempt(ip).ok);
 });

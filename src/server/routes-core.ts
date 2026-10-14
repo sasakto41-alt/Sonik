@@ -2,46 +2,15 @@ import express from 'express';
 import * as path from 'path';
 import { ServerContext } from './context';
 import { ah, fail, uuid } from './util';
-import { LoginGuard } from './security';
 import { streamFile, streamChecked } from './media';
 import { clamp, PlayerState, RepeatMode } from '../shared/types';
 
 /**
- * Маршруты: health, auth, состояние, музыкальный плеер, музыка, плейлисты, медиа-стриминг.
+ * Маршруты: health, состояние, музыкальный плеер, музыка, плейлисты, медиа-стриминг.
  */
 export function registerCoreRoutes(app: express.Express, ctx: ServerContext): void {
-  const loginGuard = new LoginGuard();
-
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, app: 'Sonic Studio', version: ctx.appVersion });
-  });
-
-  // ─── Авторизация для LAN-устройств ───
-
-  app.post('/api/auth/login', express.json({ limit: '16kb' }), (req, res) => {
-    const ip = req.socket.remoteAddress || 'unknown';
-    const gate = loginGuard.canAttempt(ip);
-    if (!gate.ok) {
-      return fail(res, 429, `Слишком много попыток. Повторите через ${gate.retryAfterSec} с.`);
-    }
-    const pin = String((req.body as { pin?: unknown })?.pin || '');
-    if (pin && pin === ctx.settings.data.lanPin) {
-      loginGuard.reset(ip);
-      // Устройство регистрируется автоматически при первом входе и сохраняется
-      const deviceId = String((req.body as { deviceId?: unknown })?.deviceId
-        || req.headers['x-device-id'] || '').slice(0, 64);
-      if (deviceId) {
-        const d = ctx.devices.touch(deviceId, {
-          ua: String(req.headers['user-agent'] || ''),
-          ip
-        });
-        ctx.log.info(`Устройство вошло на сайт: ${d.name} (${ip})`);
-      }
-      return res.json({ ok: true, token: ctx.settings.data.lanToken });
-    }
-    loginGuard.fail(ip);
-    ctx.log.warn(`Неудачная попытка входа с ${ip}`);
-    return fail(res, 401, 'Неверный PIN-код. PIN отображается в настройках Sonic Studio на компьютере.');
   });
 
   // ─── Состояние ───
@@ -247,19 +216,14 @@ function str(v: unknown): string | undefined {
 }
 
 export function systemInfo(ctx: ServerContext) {
-  const { networkAddress } = require('./net') as { networkAddress(): string };
-  const ip = networkAddress();
   const port = ctx.port;
   return {
     appVersion: ctx.appVersion,
     platform: process.platform,
     electron: ctx.electron,
-    ip,
+    ip: '127.0.0.1',
     port,
     url: `http://127.0.0.1:${port}`,
-    lanUrl: ctx.settings.data.lanEnabled && ip ? `http://${ip}:${port}` : null,
-    lanEnabled: ctx.settings.data.lanEnabled,
-    pin: ctx.settings.data.lanPin,
     ffmpeg: ctx.ffmpeg.available,
     startedAt: ctx.startedAt
   };

@@ -14,8 +14,6 @@ import { ImageLibrary } from './library-images';
 import { PlaylistManager } from './playlists';
 import { SoundboardManager } from './soundboard';
 import { StageController } from './stage';
-import { QuickManager } from './quick';
-import { DeviceManager } from './devices';
 import { ServerContext } from './context';
 import { createAuthMiddleware, isLoopback } from './security';
 import { resolveDataDir } from './paths';
@@ -81,6 +79,16 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   log.info(`=== Sonic Studio запускается (dataDir: ${paths.root}, electron: ${electron}) ===`);
 
   const settings = createSettingsStore(paths);
+  // Старые файлы настроек могли содержать поля телефонного доступа — убираем их
+  {
+    const legacy = settings.data as unknown as Record<string, unknown>;
+    if ('lanEnabled' in legacy || 'lanPin' in legacy || 'lanToken' in legacy) {
+      settings.update(s => {
+        const rec = s as unknown as Record<string, unknown>;
+        delete rec.lanEnabled; delete rec.lanPin; delete rec.lanToken;
+      });
+    }
+  }
   const eqStore = new JsonStore<EqState>(path.join(paths.settings, 'eq.json'), {
     enabled: false, preset: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], customPresets: []
   }, 400);
@@ -91,12 +99,10 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   const images = new ImageLibrary(paths, log);
   const playlists = new PlaylistManager(paths);
   const soundboard = new SoundboardManager(paths);
-  const quick = new QuickManager(paths);
-  const devices = new DeviceManager(paths, () => settings.data.lanPin);
 
-  // Определяем порт: из настроек или указанный
+  // Приложение полностью локальное: слушаем только 127.0.0.1.
   let port = opts.port ?? settings.data.port;
-  const host = () => (settings.data.lanEnabled ? '0.0.0.0' : '127.0.0.1');
+  const host = '127.0.0.1';
 
   const app = express();
   app.disable('x-powered-by');
@@ -128,12 +134,8 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     next();
   });
 
-  // Авторизация: loopback — свободно, LAN — по токену
-  app.use('/api', createAuthMiddleware(() => ({
-    lanEnabled: settings.data.lanEnabled,
-    token: settings.data.lanToken,
-    pin: settings.data.lanPin
-  })));
+  // Авторизация: только этот компьютер, внешние подключения отклоняются
+  app.use('/api', createAuthMiddleware());
 
   // Статика собранного renderer'а
   const rendererDir = path.resolve(__dirname, '..', 'renderer');
@@ -154,8 +156,6 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     images,
     playlists,
     soundboard,
-    quick,
-    devices,
     stage: null as unknown as StageController,
     bridge,
     ffmpeg: detectFfmpeg(),
@@ -163,25 +163,6 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     startedAt: Date.now(),
     port,
     setPort(p: number) { port = p; ctx.port = p; },
-    async restartListener(targetHost: string, targetPort: number): Promise<void> {
-      return new Promise((resolve, reject) => {
-        httpServer.close((err) => {
-          const listen = () => {
-            httpServer.listen(targetPort, targetHost, () => {
-              ctx.setPort(targetPort);
-              log.info(`Слушатель: http://${targetHost}:${targetPort}`);
-              resolve();
-            });
-          };
-          if (err) {
-            // Сервер мог быть не запущен — просто слушаем заново
-            listen();
-          } else {
-            listen();
-          }
-        });
-      });
-    },
     allowedRoots(): string[] {
       const s = settings.data;
       return [
@@ -207,9 +188,6 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     }
   };
   ctx.stage = new StageController(ctx);
-
-  // Устройства в снимке состояния: список + флаги online/showsStage
-  store.devicesProvider = () => ctx.devices.withOnline(ctx.ws.onlineDeviceIds(), ctx.ws.stageDeviceIds());
 
   registerCoreRoutes(app, ctx);
   registerExtraRoutes(app, ctx);
@@ -238,7 +216,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   if (requestedPort !== 0) {
     for (let attempt = 0; attempt <= 20; attempt++) {
       const candidate = requestedPort + attempt;
-      if (await isPortFree(host(), candidate)) {
+      if (await isPortFree(host, candidate)) {
         actualPort = candidate;
         break;
       }
@@ -251,39 +229,22 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
   }
 
   const httpServer = http.createServer(app);
-  // Дебаунс-рассылка снимка при подключении/отключении устройств
-  let devBcastTimer: NodeJS.Timeout | null = null;
-  const scheduleDeviceBroadcast = (): void => {
-    if (devBcastTimer) return;
-    devBcastTimer = setTimeout(() => { devBcastTimer = null; ctx.broadcastSnapshot(); }, 250);
-  };
-  const ws = new WsHub(httpServer, (req) => {
-    if (isLoopbackHttp(req)) return true;
-    if (!settings.data.lanEnabled) return false;
-    const url = new URL(req.url || '/', 'http://localhost');
-    return url.searchParams.get('token') === settings.data.lanToken;
-  }, (client, connected) => {
-    if (client.loopback || !client.deviceId) return;
-    // Устройство создаётся/обновляется автоматически и сразу сохраняется
-    ctx.devices.touch(client.deviceId, { ua: client.ua, ip: client.ip });
-    if (connected) log.info(`Устройство подключилось: ${ctx.devices.byId(client.deviceId)?.name || client.deviceId} (${client.ip})`);
-    scheduleDeviceBroadcast();
-  });
+  const ws = new WsHub(httpServer, (req) => isLoopbackHttp(req));
   ctx.ws = ws;
 
   ws.onMessage((msg: WsIn, client) => {
     if (msg.type !== 'report') return;
     if (msg.domain === 'stage') {
       ctx.stage.report(msg.data);
-    } else if (msg.domain === 'player' && client.loopback) {
-      // Отчёты о музыке принимает только с локальной машины (desktop-плеер)
+    } else if (msg.domain === 'player' && client.role === 'ui') {
+      // Отчёты о воспроизведении приходят только от desktop-плеера
       handlePlayerReport(ctx, msg.data);
     }
   });
 
   await new Promise<void>((resolve, reject) => {
     httpServer.once('error', (err) => reject(err));
-    httpServer.listen(actualPort, host(), () => resolve());
+    httpServer.listen(actualPort, host, () => resolve());
   });
   // Для эфемерного порта (0) берём фактический из адреса
   const addr = httpServer.address();
@@ -293,7 +254,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     settings.update(s => { s.port = actualPort; });
   }
 
-  log.info(`Сервер запущен: http://127.0.0.1:${actualPort} (LAN: ${settings.data.lanEnabled ? 'включён' : 'выключен'}, FFmpeg: ${ctx.ffmpeg.available ? ctx.ffmpeg.path : 'нет'})`);
+  log.info(`Сервер запущен: http://127.0.0.1:${actualPort} (только этот компьютер, FFmpeg: ${ctx.ffmpeg.available ? ctx.ffmpeg.path : 'нет'})`);
 
   // Регистрируем глобальные хоткеи soundboard
   refreshHotkeys(ctx);
@@ -314,7 +275,7 @@ export async function startSonicServer(opts: StartOptions = {}): Promise<Running
     ctx,
     async close(): Promise<void> {
       log.info('Остановка сервера...');
-      try { music.saveNow(); videos.saveNow(); images.saveNow(); playlists.saveNow(); soundboard.saveNow(); quick.saveNow(); devices.saveNow(); } catch { /* ignore */ }
+      try { music.saveNow(); videos.saveNow(); images.saveNow(); playlists.saveNow(); soundboard.saveNow(); } catch { /* ignore */ }
       try { await ws.close(); } catch { /* ignore */ }
       await new Promise<void>((resolve) => {
         httpServer.close(() => resolve());

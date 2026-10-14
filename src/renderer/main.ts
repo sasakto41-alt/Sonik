@@ -1,7 +1,7 @@
 import { Snapshot } from '../shared/types';
 import { store, localPref, setLocalPref } from './store';
-import { api, setToastHandler, setAuthHandler, login, isElectron } from './api';
-import { toast, modal, closeTopModal, el, h, clear } from './ui';
+import { api, setToastHandler, isElectron } from './api';
+import { toast, closeTopModal, el, h, clear } from './ui';
 import { ICONS } from './icons';
 import { player } from './player';
 import { initPlayerBar, updateConnStatus } from './components';
@@ -18,8 +18,8 @@ import { mountSettings } from './pages/settings';
 
 /**
  * Bootstrap интерфейса: сайдбар, роутер, панель плеера, WS-события, хоткеи.
- * Плитки быстрого доступа живут на «Главной» (дашборд) — отдельного раздела нет,
- * чтобы не переключаться между окнами/страницами.
+ * «Главная» — это быстрый доступ в стиле LivePlay: акты-плейлисты слева,
+ * цветные карточки треков справа, панель плеера внизу окна.
  */
 
 const NAV: Array<{ id: string; label: string; icon: string; desktop?: boolean }> = [
@@ -102,37 +102,9 @@ function buildSidebar(): void {
     h('div', { class: 'version-note' }, 'Sonic Studio · локальный сервер')));
 }
 
-/** Авторизация для веб-клиентов (LAN): ввод PIN-кода. */
-function showLoginModal(): void {
-  modal('Подключение к Sonic Studio', (body, close) => {
-    body.append(h('p', { class: 'confirm-text' },
-      'Введите PIN-код, отображаемый в настройках приложения на компьютере (раздел «Настройки» → «Сервер и доступ»).'));
-    const input = h('input', { class: 'input', type: 'text', inputmode: 'numeric', placeholder: 'PIN-код', maxlength: '6' }) as HTMLInputElement;
-    const err = h('div', { class: 'form-error hidden' }) as HTMLElement;
-    const btn = h('button', { class: 'btn accent full' }, 'Подключиться');
-    const submit = async () => {
-      try {
-        await login(input.value.trim());
-        err.classList.add('hidden');
-        close();
-        toast('success', 'Подключено к Sonic Studio');
-        location.reload();
-      } catch (e) {
-        err.textContent = (e as Error).message;
-        err.classList.remove('hidden');
-      }
-    };
-    btn.addEventListener('click', () => void submit());
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') void submit(); });
-    body.append(input, err, btn);
-    window.setTimeout(() => input.focus(), 60);
-  });
-}
-
 function applySnapshot(s: Snapshot): void {
   updateConnStatus(true, s.system.electron);
   player.applySnapshot(s);
-  document.querySelectorAll('#sidebar .nav-item').forEach(() => { /* подсветка обновляется в navigate */ });
 }
 
 function bindStore(): void {
@@ -140,7 +112,6 @@ function bindStore(): void {
     if (e.type === 'snapshot') applySnapshot(e.snapshot);
     else if (e.type === 'connected') { updateConnStatus(true, store.snapshot?.system.electron ?? isElectron()); }
     else if (e.type === 'disconnected') updateConnStatus(false, false);
-    else if (e.type === 'auth') showLoginModal();
     else if (e.type === 'command') {
       if (e.target === 'toast') {
         toast((e.action as 'info' | 'success' | 'error') || 'info', String(e.payload || ''));
@@ -154,10 +125,6 @@ function bindStore(): void {
         document.dispatchEvent(new CustomEvent('sonic:eq', { detail: e.payload }));
       } else if (e.target === 'all' && e.domain === 'soundboard') {
         document.dispatchEvent(new CustomEvent('sonic:soundboard', { detail: { action: e.action, payload: e.payload } }));
-      } else if (e.target === 'renderer' && e.domain === 'stage' && e.action === 'showStageOutput' && !isElectron()) {
-        // Это устройство стало экраном сценического вывода: открываем страницу сцены
-        // (токен уже в localStorage — сцена подключится и будет показывать вывод)
-        location.href = 'stage.html';
       }
       // target=stage обрабатывается страницей сцены (stage/main.ts)
     }
@@ -203,31 +170,15 @@ function bindHotkeys(): void {
   });
 }
 
-/** Кнопка плиток быстрого доступа в шапке (только в приложении на компьютере). */
-function buildTopbar(): void {
-  if (!isElectron()) return;
-  const btn = h('button', {
-    class: 'icon-btn topbar-tiles',
-    title: 'Быстрый доступ — плитки на главном экране',
-    'aria-label': 'Быстрый доступ',
-    html: ICONS.soundboard,
-    onclick: () => navigate('home')
-  }) as HTMLButtonElement;
-  const bar = el<HTMLElement>('#topbar');
-  bar.insertBefore(btn, el<HTMLElement>('#conn-status'));
-}
-
 async function boot(): Promise<void> {
   buildSidebar();
-  buildTopbar();
   initPlayerBar();
   bindStore();
   bindHotkeys();
 
   setToastHandler((level, msg) => toast(level, msg));
-  setAuthHandler(() => store.emit({ type: 'auth' }));
 
-  // Инициализация громкости из сохранённых настроек
+  // Первичный снимок состояния (громкость, эквалайзер)
   try {
     const s = await api.get<Snapshot>('/api/state');
     store.applySnapshot(s);
@@ -235,7 +186,7 @@ async function boot(): Promise<void> {
     player.state.muted = s.player.muted;
     player.applyEq(s.eq);
   } catch {
-    /* 401 → модалка логина, остальное — статус отключено */
+    /* индикатор-точка покажет состояние, WS переподключится */
   }
 
   player.startReporting();

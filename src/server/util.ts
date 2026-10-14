@@ -5,14 +5,6 @@ export function uuid(): string {
   return crypto.randomUUID();
 }
 
-export function randomPin(): string {
-  return String(crypto.randomInt(100000, 999999));
-}
-
-export function randomToken(): string {
-  return crypto.randomBytes(24).toString('hex');
-}
-
 /** Обёртка для async-обработчиков: ловит ошибки и отвечает понятным JSON. */
 export function ah(fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>): RequestHandler {
   return (req, res, next) => {

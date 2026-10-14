@@ -254,21 +254,6 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
     res.json({ ok: true });
   }));
 
-  // ─── Быстрый режим ───
-
-  app.get('/api/quick', ah(async (_req, res) => {
-    res.json({ config: ctx.quick.config });
-  }));
-
-  app.put('/api/quick', express.json({ limit: '256kb' }), ah(async (req, res) => {
-    const body = (req.body || {}) as Record<string, unknown>;
-    const config = ctx.quick.sanitizeConfig(body);
-    ctx.log.info(`Быстрый режим: enabled=${config.enabled}, плиток ${config.tiles.length}`);
-    ctx.store.touch('settings');
-    ctx.broadcastSnapshot();
-    res.json({ ok: true, config });
-  }));
-
   // ─── Эквалайзер ───
 
   app.get('/api/equalizer', ah(async (_req, res) => {
@@ -346,100 +331,9 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
 
   // ─── Система ───
 
-  app.post('/api/system/lan', express.json({ limit: '16kb' }), ah(async (req, res) => {
-    const enabled = Boolean((req.body as { enabled?: unknown })?.enabled);
-    ctx.settings.update(s => { s.lanEnabled = enabled; });
-    ctx.log.info(`Доступ по локальной сети ${enabled ? 'включён' : 'выключен'}`);
-    await restartListener(ctx);
-    res.json({ ok: true, enabled, lanUrl: systemInfo(ctx).lanUrl });
-  }));
-
-  app.post('/api/system/pin/regenerate', ah(async (_req, res) => {
-    const { randomPin, randomToken } = await import('./util');
-    ctx.settings.update(s => { s.lanPin = randomPin(); s.lanToken = randomToken(); });
-    ctx.broadcastSnapshot();
-    res.json({ ok: true, pin: ctx.settings.data.lanPin });
-  }));
-
-  app.post('/api/system/port', express.json({ limit: '16kb' }), ah(async (req, res) => {
-    const port = Number((req.body as { port?: unknown })?.port);
-    if (!isFinite(port) || port < 1024 || port > 65535) {
-      return fail(res, 400, 'Порт должен быть числом от 1024 до 65535');
-    }
-    ctx.settings.update(s => { s.port = port; });
-    const ok = await restartListener(ctx);
-    if (!ok) return fail(res, 500, `Не удалось занять порт ${port}. Возможно, он используется другой программой.`);
-    res.json({ ok: true, port });
-  }));
-
-  app.get('/api/system/qr', ah(async (_req, res) => {
-    const info = systemInfo(ctx);
-    if (!info.lanUrl) return res.json({ qr: null, url: info.url });
-    const QRCode = await import('qrcode');
-    const qr = await QRCode.toDataURL(info.lanUrl, { width: 240, margin: 1 });
-    res.json({ qr, url: info.lanUrl });
-  }));
-
   app.get('/api/system/logs', ah(async (req, res) => {
     const lines = clamp(Number(req.query.lines) || 200, 10, 2000);
     res.json({ logs: ctx.log.tail(lines) });
-  }));
-
-  // ─── Устройства вывода (телефон, планшет, ТВ) ───
-
-  app.get('/api/devices', ah(async (_req, res) => {
-    res.json({ devices: ctx.store.snapshot(systemInfo(ctx)).devices });
-  }));
-
-  app.post('/api/devices/pair', express.json({ limit: '16kb' }), ah(async (req, res) => {
-    const body = (req.body || {}) as { id?: unknown; pin?: unknown };
-    const id = String(body.id || '');
-    const pin = String(body.pin || '').trim();
-    if (!id) return fail(res, 400, 'Не указано устройство');
-    if (!pin) return fail(res, 400, 'Введите код подключения');
-    const r = ctx.devices.pair(id, pin);
-    if (!r.ok) {
-      ctx.log.warn(`Подключение устройства отклонено: ${r.error}`);
-      return fail(res, 400, r.error || 'Не удалось подключить устройство');
-    }
-    ctx.log.info(`Устройство подключено (пара): ${r.device?.name || id}`);
-    ctx.broadcastSnapshot();
-    res.json({ ok: true, device: r.device });
-  }));
-
-  app.post('/api/devices/:id/unpair', ah(async (req, res) => {
-    const d = ctx.devices.unpair(req.params.id);
-    if (!d) return fail(res, 404, 'Устройство не найдено');
-    ctx.broadcastSnapshot();
-    res.json({ ok: true, device: d });
-  }));
-
-  app.post('/api/devices/:id/rename', express.json({ limit: '16kb' }), ah(async (req, res) => {
-    const name = String((req.body as { name?: unknown })?.name || '');
-    const d = ctx.devices.rename(req.params.id, name);
-    if (!d) return fail(res, 400, 'Не удалось переименовать: устройство не найдено или имя пустое');
-    ctx.broadcastSnapshot();
-    res.json({ ok: true, device: d });
-  }));
-
-  app.delete('/api/devices/:id', ah(async (req, res) => {
-    const ok = ctx.devices.remove(req.params.id);
-    if (!ok) return fail(res, 404, 'Устройство не найдено');
-    ctx.broadcastSnapshot();
-    res.json({ ok: true });
-  }));
-
-  /** Вывести сцену на устройство: его браузер переключается на экран сцены. */
-  app.post('/api/devices/:id/output', ah(async (req, res) => {
-    const d = ctx.devices.byId(req.params.id);
-    if (!d) return fail(res, 404, 'Устройство не найдено');
-    if (!d.paired) return fail(res, 400, 'Сначала подключите устройство кодом');
-    const sent = ctx.ws.sendToDevice(req.params.id, {
-      type: 'command', target: 'renderer', domain: 'stage', action: 'showStageOutput'
-    });
-    if (!sent) return fail(res, 409, 'Устройство не в сети. Откройте на нём сайт Sonic Studio и повторите.');
-    ctx.log.info(`Сцена выведена на устройство: ${d.name}`);
-    res.json({ ok: true });
   }));
 
   app.get('/api/system/backup', ah(async (_req, res) => {
@@ -451,7 +345,6 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
       playlists: ctx.playlists.listMusic(),
       videoPlaylists: ctx.playlists.listVideo(),
       soundboard: ctx.soundboard.config,
-      quick: ctx.quick.config,
       eq: ctx.store.eq
     };
     res.setHeader('Content-Type', 'application/json');
@@ -487,11 +380,6 @@ export function registerExtraRoutes(app: express.Express, ctx: ServerContext): v
       }
     }
     if (body.soundboard && typeof body.soundboard === 'object') ctx.soundboard.replace(body.soundboard as Record<string, unknown>);
-    if (body.quick && typeof body.quick === 'object') {
-      const q = body.quick as Record<string, unknown>;
-      const tiles = Array.isArray(q.tiles) ? q.tiles : [];
-      ctx.quick.sanitizeConfig({ enabled: q.enabled === true, tiles });
-    }
     ctx.playlists.saveNow();
     ctx.soundboard.saveNow();
     ctx.store.touch('settings');
@@ -659,7 +547,9 @@ function startVideoScan(ctx: ServerContext, folders: string[]): void {
   }, 50);
 }
 
-/** Перерегистрация глобальных хоткеев soundboard при изменении конфигурации. */
+/**
+ * Перерегистрация глобальных хоткеев soundboard при изменении конфигурации.
+ */
 export function refreshHotkeys(ctx: ServerContext): void {
   if (!ctx.bridge || !ctx.bridge.electronAvailable) return;
   const map: Record<string, string> = {};
@@ -670,30 +560,6 @@ export function refreshHotkeys(ctx: ServerContext): void {
   if (conflicts.length > 0) {
     ctx.toast('error', `Некоторые горячие клавиши заняты другими программами: ${conflicts.join(', ')}`);
     ctx.log.warn(`Занятые хоткеи: ${conflicts.join(', ')}`);
-  }
-}
-
-/**
- * Перезапуск HTTP-слушателя (смена порта или включение LAN).
- * Сервер и WS-хаб сохраняются, меняется только слушающий сокет.
- */
-async function restartListener(ctx: ServerContext): Promise<boolean> {
-  const s = ctx.settings.data;
-  const host = s.lanEnabled ? '0.0.0.0' : '127.0.0.1';
-  const target = s.port;
-  try {
-    await ctx.restartListener(host, target);
-    ctx.log.info(`Сервер перезапущен: ${host}:${target}`);
-    ctx.broadcastSnapshot();
-    return true;
-  } catch (err) {
-    ctx.log.error(`Не удалось перезапустить слушатель: ${(err as Error).message}`);
-    try {
-      await ctx.restartListener('127.0.0.1', ctx.port);
-    } catch {
-      /* критическая ситуация — сервер недоступен */
-    }
-    return false;
   }
 }
 

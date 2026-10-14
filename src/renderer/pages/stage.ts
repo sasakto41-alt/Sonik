@@ -1,13 +1,13 @@
-import { h, clear, el, fmtTime, toast, confirmDialog, promptDialog, modal, makeSlider } from '../ui';
+import { h, clear, el, fmtTime, toast, modal, makeSlider } from '../ui';
 import { ICONS, icon } from '../icons';
 import { api, isElectron } from '../api';
-import { DisplayInfo, VideoItem, VideoPlaylist, Snapshot, ImageAsset, DeviceEntry, DeviceType } from '../../shared/types';
+import { DisplayInfo, VideoItem, VideoPlaylist, Snapshot, ImageAsset } from '../../shared/types';
 import { snapshotListener } from '../components';
 import { store } from '../store';
 
 /**
- * Сценический вывод: выбор дисплея, меню устройств вывода (телефон/планшет/ТВ
- * с подключением по коду), полный пульт сцены, чёрный экран, фейды, титры, QR.
+ * Сценический вывод: выбор дисплея, полный пульт сцены, чёрный экран, фейды,
+ * титры, картинки. Приложение локальное — вывод идёт на экраны этого ПК.
  *
  * Важно: панель управления строится ОДИН раз и затем только обновляется —
  * иначе любые клики по выпадающим спискам (выбор видео/картинки) сбрасывались
@@ -29,7 +29,6 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
   // ─── Контейнеры разделов ───
 
   const displaysBox = h('div', { class: 'display-grid' });
-  const devicesBox = h('div', { class: 'devices-box' });
   const confirmBox = h('div', { class: 'confirm-banner hidden' });
   const controlBox = h('div', { class: 'stage-controls' });
 
@@ -42,13 +41,9 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
         h('button', { class: 'btn ghost', html: icon('close') + '<span>Закрыть окно</span>', onclick: () => void cmd('closeWindow') }))),
     h('div', { class: 'section-title' }, '1. Экран вывода'),
     displaysBox,
-    h('div', { class: 'section-title' }, '2. Устройства вывода — телефон, планшет, ТВ'),
-    devicesBox,
-    h('div', { class: 'section-title' }, '3. Управление воспроизведением'),
+    h('div', { class: 'section-title' }, '2. Управление воспроизведением'),
     confirmBox,
-    controlBox,
-    h('div', { class: 'section-title' }, '4. Управление с телефона'),
-    buildPhoneCard());
+    controlBox);
 
   // ─── Данные библиотеки ───
 
@@ -325,143 +320,6 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
         h('button', { class: 'btn ghost small', onclick: () => void cmd('confirmDisplay', { accept: false }) }, 'Отмена')));
   }
 
-  // ─── Устройства вывода ───
-
-  const TYPE_LABEL: Record<DeviceType, string> = {
-    phone: 'телефон', tablet: 'планшет', desktop: 'компьютер', tv: 'ТВ', web: 'браузер'
-  };
-
-  function fmtAgo(ts: number): string {
-    const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-    if (sec < 60) return 'только что';
-    const m = Math.floor(sec / 60);
-    if (m < 60) return `${m} мин назад`;
-    const hh = Math.floor(m / 60);
-    if (hh < 24) return `${hh} ч назад`;
-    return `${Math.floor(hh / 24)} дн назад`;
-  }
-
-  function renderDevices(devices: DeviceEntry[]): void {
-    clear(devicesBox);
-    const lanEnabled = store.snapshot?.system.lanEnabled ?? true;
-    if (!lanEnabled) {
-      devicesBox.append(h('div', { class: 'note-card' },
-        h('div', {}, 'Доступ по локальной сети выключен — устройства не смогут подключаться к сайту.'),
-        h('div', { class: 'btn-row' },
-          h('button', { class: 'btn accent small', onclick: () => void enableLan() }, 'Включить доступ по сети'))));
-      return;
-    }
-    if (devices.length === 0) {
-      const url = store.snapshot?.system.lanUrl;
-      devicesBox.append(h('div', { class: 'note-card' },
-        h('div', {}, 'Устройств пока нет. Откройте на телефоне, планшете или ТВ адрес сайта Sonic Studio — устройство появится здесь автоматически и сохранится, даже если закрыть приложение.'),
-        url ? h('div', { class: 'server-row' }, h('span', { class: 'muted' }, 'Адрес:'), h('code', { class: 'addr' }, url)) : null,
-        h('div', { class: 'muted' }, 'Затем нажмите «Подключить» и введите код (PIN) — после этого на устройство можно вывести сцену.')));
-      return;
-    }
-    const grid = h('div', { class: 'device-grid' });
-    for (const d of devices) grid.append(deviceCard(d));
-    devicesBox.append(grid);
-  }
-
-  function deviceCard(d: DeviceEntry): HTMLElement {
-    const canOutput = d.paired && d.online && !d.showsStage;
-    return h('div', { class: 'device-card' + (d.online ? ' online' : '') + (d.showsStage ? ' staging' : '') },
-      h('div', { class: 'device-head' },
-        h('span', { class: 'device-icon', html: icon('cast') }),
-        h('span', { class: 'device-name' }, d.name),
-        h('span', { class: 'device-type' }, TYPE_LABEL[d.type] || 'устройство'),
-        h('span', { class: 'device-status ' + (d.online ? 'ok' : 'off') },
-          d.online ? '● в сети' : `○ был(а) ${fmtAgo(d.lastSeen)}`)),
-      h('div', { class: 'device-badges' },
-        d.paired ? h('span', { class: 'badge ok', html: icon('check') + '<span>подключено</span>' }) : h('span', { class: 'badge' }, 'не подключено'),
-        d.showsStage ? h('span', { class: 'badge accent' }, 'показывает сцену') : null),
-      h('div', { class: 'btn-row' },
-        d.paired
-          ? h('button', { class: 'btn accent small', disabled: canOutput ? undefined : '', title: canOutput ? 'Показать сцену на этом устройстве' : (d.showsStage ? 'Сцена уже показывается' : 'Устройство не в сети'), onclick: () => void outputTo(d) }, 'Вывести сцену')
-          : h('button', { class: 'btn accent small', onclick: () => pairModal(d) }, 'Подключить'),
-        h('button', { class: 'icon-btn small', title: 'Переименовать', html: ICONS.edit, onclick: () => void renameDevice(d) }),
-        h('button', { class: 'icon-btn small', title: 'Забыть устройство', html: ICONS.trash, onclick: () => void forgetDevice(d) })));
-  }
-
-  /** Диалог подключения: просим код (PIN) и подтверждаем устройство. */
-  function pairModal(d: DeviceEntry): void {
-    modal('Подключение устройства', (body, close) => {
-      body.append(h('p', { class: 'confirm-text' },
-        `Устройство: «${d.name}». Введите код подключения — он отображается в настройках Sonic Studio, раздел «Сервер и доступ».`));
-      const input = h('input', { class: 'input', type: 'text', inputmode: 'numeric', placeholder: 'Код (PIN)', maxlength: '8' }) as HTMLInputElement;
-      const err = h('div', { class: 'form-error hidden' }) as HTMLElement;
-      const btn = h('button', { class: 'btn accent full' }, 'Подключить');
-      const submit = async (): Promise<void> => {
-        try {
-          await api.post('/api/devices/pair', { id: d.id, pin: input.value.trim() });
-          err.classList.add('hidden');
-          close();
-          toast('success', `Устройство «${d.name}» подключено и сохранено`);
-          // Если устройство сейчас на сайте — сразу предложим вывести сцену
-          try {
-            const list = await api.get<{ devices: DeviceEntry[] }>(`/api/devices?_=${Date.now()}`);
-            const fresh = list.devices.find(x => x.id === d.id);
-            if (fresh?.online && !fresh.showsStage) {
-              const yes = await confirmDialog('Вывести сцену?',
-                `«${fresh.name}» сейчас на сайте. Переключить его в режим показа сцены?`,
-                'Вывести сцену');
-              if (yes) void outputTo(fresh);
-            }
-          } catch { /* ignore */ }
-        } catch (e) {
-          err.textContent = (e as Error).message;
-          err.classList.remove('hidden');
-        }
-      };
-      btn.addEventListener('click', () => void submit());
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') void submit(); });
-      body.append(input, err, btn);
-      window.setTimeout(() => input.focus(), 60);
-    });
-  }
-
-  async function outputTo(d: DeviceEntry): Promise<void> {
-    try {
-      await api.post(`/api/devices/${d.id}/output`, {});
-      toast('success', `Сцена выведена на «${d.name}»`);
-    } catch (e) {
-      toast('error', (e as Error).message);
-    }
-  }
-
-  async function renameDevice(d: DeviceEntry): Promise<void> {
-    const name = await promptDialog('Название устройства', 'Например: «ТВ в зале»', d.name);
-    if (!name) return;
-    try {
-      await api.post(`/api/devices/${d.id}/rename`, { name });
-      toast('success', 'Название сохранено');
-    } catch (e) { toast('error', (e as Error).message); }
-  }
-
-  async function forgetDevice(d: DeviceEntry): Promise<void> {
-    const ok = await confirmDialog('Забыть устройство?', `«${d.name}» будет удалено из списка. Если оно снова откроет сайт — появится автоматически.`, 'Забыть', true);
-    if (!ok) return;
-    try {
-      await api.del(`/api/devices/${d.id}`);
-      toast('success', 'Устройство удалено из списка');
-    } catch (e) { toast('error', (e as Error).message); }
-  }
-
-  async function enableLan(): Promise<void> {
-    try {
-      await api.post('/api/system/lan', { enabled: true });
-      toast('success', 'Доступ по локальной сети включён');
-    } catch (e) { toast('error', (e as Error).message); }
-  }
-
-  async function refreshDevices(): Promise<void> {
-    try {
-      const r = await api.get<{ devices: DeviceEntry[] }>(`/api/devices?_=${Date.now()}`);
-      renderDevices(r.devices);
-    } catch { /* ignore */ }
-  }
-
   // ─── Скан картинок / проводник ───
 
   async function rescanImages(): Promise<void> {
@@ -494,42 +352,9 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
     return { idle: 'ожидание', playing: 'воспроизведение', paused: 'пауза', stopped: 'остановлено' }[s];
   }
 
-  // ─── QR / телефон ───
-
-  function buildPhoneCard(): HTMLElement {
-    const card = h('div', { class: 'card phone-card' });
-    const info = h('div', { class: 'phone-info' });
-    const img = h('img', { class: 'qr-img', alt: 'QR-код' }) as HTMLImageElement;
-    card.append(info, img);
-    const render = async (s: Snapshot): Promise<void> => {
-      clear(info);
-      info.append(
-        h('div', { class: 'server-row' },
-          h('span', { class: 'muted' }, 'Адрес для телефона:'),
-          h('code', { class: 'addr' }, s.system.lanUrl || 'доступ по сети отключён')),
-        h('div', { class: 'server-row' },
-          h('span', { class: 'muted' }, 'PIN:'),
-          h('code', { class: 'addr' }, s.system.pin),
-          h('span', { class: 'muted' }, ' (вводится на телефоне при первом подключении)')));
-      if (s.system.lanEnabled) {
-        try {
-          const r = await api.get<{ qr: string | null }>('/api/system/qr');
-          if (r.qr) { img.src = r.qr; img.classList.remove('hidden'); }
-          else img.classList.add('hidden');
-        } catch { img.classList.add('hidden'); }
-      } else {
-        img.classList.add('hidden');
-        info.append(h('button', { class: 'btn accent small', onclick: () => void enableLan() }, 'Включить доступ по сети'));
-      }
-    };
-    const off = snapshotListener((s) => void render(s));
-    void off;
-    return card;
-  }
-
   // ─── Живая позиция прогресса ───
 
-  window.setInterval(() => {
+  const posTimer = window.setInterval(() => {
     if (ctl && !ctl.progress.root.classList.contains('dragging')) {
       const pos = store.estimatePosition('stage');
       ctl.progress.setValue(pos, true);
@@ -542,14 +367,16 @@ export function mountStage(container: HTMLElement): { teardown: () => void } {
   const offSnap = snapshotListener((s) => {
     snapshot = s;
     renderDisplays(s.displays, s.stage);
-    renderDevices(s.devices);
     updateControls(s);
   });
 
   void el;
-  void refresh().then(() => { void refreshDevices(); });
+  void refresh();
 
   return {
-    teardown: () => { offSnap(); }
+    teardown: () => {
+      offSnap();
+      window.clearInterval(posTimer);
+    }
   };
 }

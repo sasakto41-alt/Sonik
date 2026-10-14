@@ -1,16 +1,12 @@
 import { Settings } from '../shared/types';
 import { AppPaths } from './paths';
 import { JsonStore } from './store';
-import { randomPin, randomToken } from './util';
 
 export const DEFAULT_PORT = 8765;
 
 export function defaultSettings(): Settings {
   return {
     port: DEFAULT_PORT,
-    lanEnabled: false,
-    lanPin: randomPin(),
-    lanToken: randomToken(),
     musicFolders: [],
     videoFolders: [],
     imageFolders: [],

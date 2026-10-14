@@ -29,6 +29,10 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Sonic Studio
+  artifactName: SonicStudio-Setup-${version}.${ext}
+
+portable:
+  artifactName: SonicStudio-Portable-${version}.${ext}
 
 # Опционально: поставьте ffmpeg.exe в папку ffmpeg-bin/ перед сборкой,
 # и раскомментируйте блок ниже, чтобы FFmpeg попал в установщик

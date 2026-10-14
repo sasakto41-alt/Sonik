@@ -10,7 +10,17 @@ import { clearHotkeys } from './shortcuts';
  * Точка входа Electron-приложения.
  * Порядок запуска: ready → сервер (внутри main-процесса) → главное окно → дисплеи.
  * При завершении: снятие глобальных хоткеев, остановка сервера.
+ *
+ * Страховка от падений: одиночная ошибка (блокировка файла антивирусом,
+ * сбой драйвера и т.п.) НЕ должна убивать всё приложение — пишем в журнал
+ * и продолжаем работать.
  */
+process.on('uncaughtException', (err) => {
+  console.error('[Sonic] Ошибка перехвачена, приложение продолжает работать:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Sonic] Отклонение обещания перехвачено, приложение продолжает работать:', reason);
+});
 
 let server: RunningServer | null = null;
 let stageManager: StageWindowManager | null = null;

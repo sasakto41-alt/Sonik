@@ -57,8 +57,8 @@ async function main() {
     const state = await req(18799, 'GET', '/api/state');
     log('GET /api/state (снимок состояния)',
       state.json && state.json.player && state.json.stage && state.json.system ? 'OK' : 'FAIL');
-    log('LAN по умолчанию выключен', state.json.system.lanEnabled === false ? 'OK' : 'FAIL',
-      JSON.stringify({ lanEnabled: state.json.system.lanEnabled }));
+    log('Приложение локальное (нет полей телефонного доступа)',
+      state.json.system.lanEnabled === undefined && state.json.system.pin === undefined ? 'OK' : 'FAIL');
 
     const vol = await req(18799, 'POST', '/api/player/command', { action: 'setVolume', payload: { volume: 0.7 } });
     const st2 = await req(18799, 'GET', '/api/state');
@@ -76,8 +76,8 @@ async function main() {
     const stage = await req(18799, 'POST', '/api/stage/command', { action: 'play' });
     log('Сцена без Electron — понятная ошибка', stage.status === 400 && stage.json.error ? 'OK' : 'FAIL');
 
-    const qr = await req(18799, 'GET', '/api/system/qr');
-    log('QR/URL отдаётся', qr.json && typeof qr.json.url === 'string' ? 'OK' : 'FAIL');
+    const phoneApi = await req(18799, 'GET', '/api/devices');
+    log('Телефонные API удалены', phoneApi.json === null || phoneApi.json.devices === undefined ? 'OK' : 'FAIL');
 
     const backup = await req(18799, 'GET', '/api/system/backup');
     log('Резервная копия', backup.json && backup.json.kind === 'sonic-studio-backup' ? 'OK' : 'FAIL');

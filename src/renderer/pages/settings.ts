@@ -5,9 +5,9 @@ import { Settings, MAX_FADE_SECONDS } from '../../shared/types';
 import { snapshotListener } from '../components';
 
 /**
- * Настройки: медиапапки, сервер и доступ (порт, LAN, PIN, QR),
- * значения по умолчанию для переходов, crossfade, заставка,
- * резервное копирование, журналы, информация.
+ * Настройки: медиапапки, значения по умолчанию для переходов, crossfade,
+ * заставка, резервное копирование, журналы, информация.
+ * Приложение полностью локальное — раздела «Сервер и доступ» больше нет.
  */
 export function mountSettings(container: HTMLElement): { teardown: () => void } {
   clear(container);
@@ -76,70 +76,6 @@ export function mountSettings(container: HTMLElement): { teardown: () => void } 
             void render();
           }) }) : h('span'))));
 
-    // ─── Сервер и доступ ───
-    const portInput = h('input', { class: 'input', type: 'number', value: String(settings.port), min: '1024', max: '65535' }) as HTMLInputElement;
-    const lanCheck = h('input', { type: 'checkbox', checked: settings.lanEnabled ? '' : undefined }) as HTMLInputElement;
-    const qrImg = h('img', { class: 'qr-img', alt: 'QR' }) as HTMLImageElement;
-    const serverCard = section('Сервер и доступ с других устройств',
-      h('div', { class: 'form-row' },
-        h('label', { class: 'form-label' }, 'Порт (применится сразу)'),
-        h('div', { class: 'btn-row' }, portInput,
-          h('button', { class: 'btn small', onclick: async () => {
-            try {
-              await api.post('/api/system/port', { port: Number(portInput.value) });
-              toast('success', 'Порт изменён. Обновите адрес в браузере.');
-            } catch (e) { toast('error', (e as Error).message); }
-          } }, 'Применить'))),
-      h('div', { class: 'form-row' },
-        h('label', { class: 'form-label' }, 'Доступ по локальной сети'),
-        h('label', { class: 'check-label' }, lanCheck, ' разрешить подключение с телефона и других устройств'),
-        h('button', { class: 'btn small', onclick: async () => {
-          await api.post('/api/system/lan', { enabled: lanCheck.checked });
-          toast('success', lanCheck.checked ? 'Доступ по сети включён' : 'Доступ по сети выключен');
-          void render();
-        } }, 'Применить')),
-      h('div', { class: 'form-row' },
-        h('label', { class: 'form-label' }, 'PIN-код для подключения'),
-        h('code', { class: 'addr' }, settings.lanPin),
-        h('button', { class: 'btn ghost small', onclick: async () => {
-          const ok = await confirmDialog('Новый PIN', 'Сгенерировать новый PIN и токен? Все подключённые устройства потребуют повторный вход.', 'Сгенерировать');
-          if (!ok) return;
-          await api.post('/api/system/pin/regenerate', {});
-          toast('success', 'PIN обновлён');
-          void render();
-        } }, 'Обновить')),
-      h('div', { class: 'qr-wrap' }, qrImg));
-    wrap.append(serverCard);
-    void api.get<{ qr: string | null }>('/api/system/qr').then(r => {
-      if (r.qr) { qrImg.src = r.qr; qrImg.classList.remove('hidden'); }
-    }).catch(() => {});
-
-    // ─── Быстрый доступ на главной (только в приложении на компьютере) ───
-    if (isElectron()) {
-      try {
-        const q = await api.get<{ config: { enabled: boolean; tiles: unknown[] } }>('/api/quick');
-        const quickCheck = h('input', { type: 'checkbox', checked: q.config.enabled ? '' : undefined }) as HTMLInputElement;
-        const tilesNote = h('span', { class: 'muted' },
-          q.config.enabled ? ` (плиток: ${q.config.tiles.length})` : '');
-        wrap.append(section('Быстрый доступ на главной',
-          h('div', { class: 'form-row' },
-            h('label', { class: 'form-label' }, 'Собственная сетка быстрого доступа'),
-            h('label', { class: 'check-label' }, quickCheck,
-              ' показывать плитки на главном экране', tilesNote),
-            h('button', { class: 'btn small', onclick: async () => {
-              try {
-                await api.put('/api/quick', { enabled: quickCheck.checked });
-                toast('success', quickCheck.checked
-                  ? 'Быстрый доступ включён — плитки на главном экране'
-                  : 'Быстрый доступ выключен');
-                void render();
-              } catch (e) { toast('error', (e as Error).message); }
-            } }, 'Применить')),
-          h('div', { class: 'muted note' },
-            'Плитки живут прямо на главном экране — никакого отдельного раздела: действия плеера, треки, плейлисты, звуки Soundboard, разделы и команды сцены. Название трека, плей/пауза и громкость — в панели плеера внизу окна. Плитки перетаскиваются мышью, размер меняется кнопкой S/M/L.')));
-      } catch { /* раздел просто не показывается */ }
-    }
-
     // ─── Переходы и звук по умолчанию ───
     const fadeIn = rangeInput('Fade In по умолчанию', settings.defaults.fadeIn);
     const fadeOut = rangeInput('Fade Out по умолчанию', settings.defaults.fadeOut);
@@ -195,7 +131,7 @@ export function mountSettings(container: HTMLElement): { teardown: () => void } 
       h('div', { class: 'about-grid' },
         h('div', {}, 'Версия:'), h('div', {}, snap.system.appVersion),
         h('div', {}, 'Платформа:'), h('div', {}, snap.system.platform + (snap.system.electron ? ' (Electron)' : ' (веб)')),
-        h('div', {}, 'Сервер:'), h('div', { class: 'addr' }, snap.system.url),
+        h('div', {}, 'Режим:'), h('div', {}, 'полностью локальный — доступ извне отключён'),
         h('div', {}, 'FFmpeg:'), h('div', {}, snap.system.ffmpeg ? 'доступен (экспорт MP3 работает)' : 'не найден (экспорт WAV работает, MP3 — нет)'),
         h('div', {}, 'Запущен:'), h('div', {}, fmtDate(snap.system.startedAt))),
       h('div', { class: 'muted note' },

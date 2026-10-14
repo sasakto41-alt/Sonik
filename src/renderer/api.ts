@@ -1,5 +1,6 @@
 /**
- * API-клиент: fetch с токеном авторизации (для LAN), понятные ошибки.
+ * API-клиент: fetch к внутреннему локальному серверу.
+ * Приложение полностью локальное — токены и PIN не нужны.
  * Команда считается выполненной только после ответа сервера.
  */
 
@@ -7,45 +8,17 @@ export const URL_PARAMS = new URLSearchParams(location.search);
 /** База API: пусто = тот же origin; в dev-режиме задаётся параметром ?api= */
 export const API_BASE = URL_PARAMS.get('api') || '';
 
-export function getToken(): string {
-  return localStorage.getItem('sonic.token') || '';
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem('sonic.token', token);
-}
-
 export function isElectron(): boolean {
   return Boolean((window as { sonicDesktop?: unknown }).sonicDesktop);
 }
 
-/** Постоянный идентификатор этого браузера/устройства (для меню устройств на сервере). */
-export function deviceId(): string {
-  let id = localStorage.getItem('sonic.deviceId');
-  if (!id) {
-    const rnd = (window.crypto && 'randomUUID' in window.crypto)
-      ? window.crypto.randomUUID()
-      : Math.random().toString(36).slice(2) + Date.now().toString(36);
-    id = 'dev-' + rnd;
-    localStorage.setItem('sonic.deviceId', id);
-  }
-  return id;
-}
-
 export function mediaUrl(p: string): string {
-  const token = getToken();
-  const sep = p.includes('?') ? '&' : '?';
-  return API_BASE + p + (token ? `${sep}token=${encodeURIComponent(token)}` : '');
+  return API_BASE + p;
 }
 
 export function wsUrl(): string {
   const base = API_BASE || (location.protocol === 'https:' ? 'wss://' + location.host : 'ws://' + location.host);
-  const wsBase = base.replace(/^http/, 'ws');
-  const params = new URLSearchParams();
-  const token = getToken();
-  if (token) params.set('token', token);
-  params.set('device', deviceId());
-  return wsBase + '/ws?' + params.toString();
+  return base.replace(/^http/, 'ws') + '/ws';
 }
 
 export class ApiError extends Error {
@@ -57,14 +30,9 @@ export class ApiError extends Error {
 type ToastFn = (level: 'info' | 'success' | 'error', message: string) => void;
 let toastHandler: ToastFn = () => {};
 export function setToastHandler(fn: ToastFn): void { toastHandler = fn; }
-let authHandler: (() => void) | null = null;
-export function setAuthHandler(fn: () => void): void { authHandler = fn; }
 
 async function request<T>(method: string, path: string, body?: unknown, raw = false): Promise<T> {
   const headers: Record<string, string> = {};
-  const token = getToken();
-  if (token) headers['x-auth-token'] = token;
-  headers['x-device-id'] = deviceId();
   let payload: BodyInit | undefined;
   if (body !== undefined) {
     if (raw) {
@@ -78,19 +46,18 @@ async function request<T>(method: string, path: string, body?: unknown, raw = fa
   try {
     res = await fetch(API_BASE + path, { method, headers, body: payload });
   } catch {
-    toastHandler('error', 'Нет соединения с сервером Sonic Studio');
-    throw new ApiError(0, 'Нет соединения с сервером');
-  }
-  if (res.status === 401 && authHandler) {
-    authHandler();
-    throw new ApiError(401, 'Требуется авторизация', 'AUTH_REQUIRED');
+    // Тихо: индикатор-точка в шапке покажет состояние, тостов «Нет соединения» больше нет
+    throw new ApiError(0, 'Внутренний сбой, повторите попытку');
   }
   const text = await res.text();
   let data: unknown = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
   if (!res.ok) {
     const err = (data as { error?: string; code?: string }) || {};
-    throw new ApiError(res.status, err.error || `Ошибка сервера (${res.status})`, err.code, data);
+    const message = err.error || `Ошибка (${res.status})`;
+    // Сбои типа 0/5xx показываем как тихую ошибку без тоста — только существенные
+    if (res.status >= 400 && res.status < 500) toastHandler('error', message);
+    throw new ApiError(res.status, message, err.code, data);
   }
   return data as T;
 }
@@ -102,8 +69,3 @@ export const api = {
   put: <T>(p: string, body?: unknown) => request<T>('PUT', p, body),
   del: <T>(p: string) => request<T>('DELETE', p)
 };
-
-export async function login(pin: string): Promise<void> {
-  const r = await request<{ ok: true; token: string }>('POST', '/api/auth/login', { pin, deviceId: deviceId() });
-  setToken(r.token);
-}

@@ -32,16 +32,6 @@ async function jpost<T>(p: string, body?: unknown): Promise<{ status: number } &
   return Object.assign({ status: r.status }, json) as { status: number } & T;
 }
 
-async function jput<T>(p: string, body: unknown): Promise<{ status: number } & T> {
-  const r = await fetch(url(p), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const json = await r.json() as Record<string, unknown>;
-  return Object.assign({ status: r.status }, json) as { status: number } & T;
-}
-
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonic-api-'));
   server = await startSonicServer({ dataDir, port: 0, electron: false, appVersion: 'test' });
@@ -193,9 +183,9 @@ test('Плейлисты: создание, добавление треков, �
   assert.equal(del.status, 200);
 });
 
-test('Настройки: LAN по умолчанию выключен, фейды сохраняются', async () => {
-  const s = await jget<{ settings: { lanEnabled: boolean; defaults: { fadeIn: number } } }>('/api/settings');
-  assert.equal(s.settings.lanEnabled, false);
+test('Настройки: приложение локальное, фейды сохраняются', async () => {
+  const s = await jget<{ settings: { lanEnabled?: boolean; defaults: { fadeIn: number } } }>('/api/settings');
+  assert.equal(s.settings.lanEnabled, undefined, 'полей телефонного доступа больше нет');
   const put = await fetch(url('/api/settings'), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -205,48 +195,6 @@ test('Настройки: LAN по умолчанию выключен, фейд
   const s2 = await jget<{ settings: { defaults: { fadeIn: number; fadeOut: number } } }>('/api/settings');
   assert.equal(s2.settings.defaults.fadeIn, 3.5);
   assert.equal(s2.settings.defaults.fadeOut, 2);
-});
-
-test('Быстрый режим: конфиг по умолчанию выключен, включение и валидация плиток', async () => {
-  const def = await jget<{ config: { enabled: boolean; tiles: { kind: string; action?: string }[] } }>('/api/quick');
-  assert.equal(def.status, 200);
-  assert.equal(def.config.enabled, false);
-  assert.ok(Array.isArray(def.config.tiles));
-  assert.ok(def.config.tiles.some(t => t.kind === 'action'), 'в стартовом наборе есть действия плеера');
-
-  // Включаем и сохраняем набор: корректная плитка + мусорные отбрасываются
-  const put = await jput<{ config: { enabled: boolean; tiles: { kind: string; size: string; action?: string }[] } }>('/api/quick', {
-    enabled: true,
-    tiles: [
-      { kind: 'action', size: 'm', action: 'playPause' },
-      { kind: 'section', size: 's', section: 'stageBlack' },
-      { kind: 'action', size: 's', action: 'неизвестное-действие' },
-      { kind: 'track', size: 's' },
-      { kind: 'bogus', size: 's' }
-    ]
-  });
-  assert.equal(put.status, 200);
-  assert.equal(put.config.enabled, true);
-  assert.equal(put.config.tiles.length, 2);
-  assert.equal(put.config.tiles[0].action, 'playPause');
-
-  // Конфигурация переживает повторное чтение (сохранение на диск)
-  const again = await jget<{ config: { enabled: boolean; tiles: unknown[] } }>('/api/quick');
-  assert.equal(again.config.enabled, true);
-  assert.equal(again.config.tiles.length, 2);
-
-  // Некорректный размер приводится к 's'
-  const put2 = await jput<{ config: { tiles: { size: string }[] } }>('/api/quick', {
-    enabled: true,
-    tiles: [{ kind: 'action', size: 'огромный', action: 'stop' }]
-  });
-  assert.equal(put2.status, 200);
-  assert.equal(put2.config.tiles[0].size, 's');
-
-  // Выключаем обратно
-  await jput('/api/quick', { enabled: false, tiles: [] });
-  const fin = await jget<{ config: { enabled: boolean } }>('/api/quick');
-  assert.equal(fin.config.enabled, false);
 });
 
 test('Картинки для сцены: добавление, скан, стриминг, показ на экране', async () => {
@@ -321,11 +269,11 @@ test('Картинки для сцены: добавление, скан, стр
 test('Резервная копия содержит конфигурации', async () => {
   const r = await fetch(url('/api/system/backup'));
   assert.equal(r.status, 200);
-  const body = await r.json() as { kind: string; settings: unknown; soundboard: unknown; quick: { tiles: unknown[] } | undefined };
+  const body = await r.json() as { kind: string; settings: unknown; soundboard: unknown; playlists: unknown[] };
   assert.equal(body.kind, 'sonic-studio-backup');
   assert.ok(body.settings);
   assert.ok(body.soundboard);
-  assert.ok(Array.isArray(body.quick?.tiles), 'быстрый режим включён в резервную копию');
+  assert.ok(Array.isArray(body.playlists), 'плейлисты включены в резервную копию');
 });
 
 test('Журнал событий отдаётся', async () => {
@@ -334,20 +282,22 @@ test('Журнал событий отдаётся', async () => {
   assert.ok(typeof r.logs === 'string');
 });
 
-test('CORS preflight разрешает x-device-id (иначе «Нет соединения» в dev-режиме)', async () => {
-  const r = await fetch(url('/api/state'), {
-    method: 'OPTIONS',
-    headers: {
-      'Origin': 'http://localhost:5173',
-      'Access-Control-Request-Method': 'GET',
-      'Access-Control-Request-Headers': 'x-auth-token,x-device-id'
-    }
+test('API-эндпоинты телефона (PIN/QR/устройства) удалены', async () => {
+  // POST на несуществующий маршрут → обычный 404 Express
+  const login = await fetch(url('/api/auth/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: '000000' })
   });
-  assert.equal(r.status, 204);
-  const allow = r.headers.get('access-control-allow-headers') || '';
-  assert.match(allow, /x-device-id/i, 'x-device-id должен быть в Access-Control-Allow-Headers');
-  assert.match(allow, /x-auth-token/i);
-  assert.equal(r.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+  assert.equal(login.status, 404);
+  // GET /api/devices больше не отдаёт список устройств (SPA-фолбэк отдаёт HTML без JSON устройств)
+  const devices = await fetch(url('/api/devices'));
+  const text = await devices.text();
+  assert.ok(!text.includes('"devices"'), 'списка устройств больше нет в ответе');
+  // Настройки не содержат полей телефонного доступа
+  const s = await jget<{ settings: Record<string, unknown> }>('/api/settings');
+  assert.equal('lanPin' in s.settings, false);
+  assert.equal('lanToken' in s.settings, false);
 });
 
 test('Запрос с Origin получает CORS-заголовки и не блокируется', async () => {

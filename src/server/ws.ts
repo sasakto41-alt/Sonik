@@ -6,16 +6,12 @@ import { WsOut, WsIn } from '../shared/types';
 export interface WsClient {
   socket: WebSocket;
   role: 'ui' | 'stage';
-  loopback: boolean;
-  /** Идентификатор устройства (локальный хранилище браузера), если передан. */
-  deviceId: string;
-  ua: string;
-  ip: string;
 }
 
 /**
  * Хаб WebSocket: рассылка снимков состояния, команд и уведомлений.
- * Клиенты: основное окно/браузеры (role=ui) и окно сценического вывода (role=stage).
+ * Клиенты: главное окно (role=ui) и окно сценического вывода (role=stage).
+ * Приложение локальное — внешние соединения не допускаются.
  */
 export class WsHub {
   private wss: WebSocketServer;
@@ -24,26 +20,20 @@ export class WsHub {
 
   constructor(
     server: Server,
-    private authCheck: (req: IncomingMessage) => boolean,
-    private onClientChange?: (client: WsClient, connected: boolean) => void
+    private authCheck: (req: IncomingMessage) => boolean
   ) {
     this.wss = new WebSocketServer({ server, path: '/ws' });
     this.wss.on('connection', (socket, req) => {
       if (!this.authCheck(req)) {
-        socket.close(4401, 'Требуется авторизация');
+        socket.close(4403, 'Только локальное подключение');
         return;
       }
       const url = new URL(req.url || '/', 'http://localhost');
       const client: WsClient = {
         socket,
-        role: url.searchParams.get('role') === 'stage' ? 'stage' : 'ui',
-        loopback: this.isLoopback(req),
-        deviceId: (url.searchParams.get('device') || '').slice(0, 64),
-        ua: String(req.headers['user-agent'] || ''),
-        ip: req.socket.remoteAddress || ''
+        role: url.searchParams.get('role') === 'stage' ? 'stage' : 'ui'
       };
       this.clients.add(client);
-      this.onClientChange?.(client, true);
       socket.on('message', (raw) => {
         try {
           const msg = JSON.parse(String(raw)) as WsIn;
@@ -52,21 +42,10 @@ export class WsHub {
           /* некорректное сообщение игнорируем */
         }
       });
-      socket.on('close', () => {
-        this.clients.delete(client);
-        this.onClientChange?.(client, false);
-      });
-      socket.on('error', () => {
-        this.clients.delete(client);
-        this.onClientChange?.(client, false);
-      });
+      socket.on('close', () => this.clients.delete(client));
+      socket.on('error', () => this.clients.delete(client));
       this.send(client, { type: 'hello', version: 1, electron: false });
     });
-  }
-
-  private isLoopback(req: IncomingMessage): boolean {
-    const addr = req.socket.remoteAddress || '';
-    return addr === '127.0.0.1' || addr === '::1' || addr.startsWith('::ffff:127.');
   }
 
   onMessage(cb: (msg: WsIn, client: WsClient) => void): void {
@@ -91,37 +70,6 @@ export class WsHub {
     for (const c of this.clients) {
       if (roles.includes(c.role) && c.socket.readyState === WebSocket.OPEN) c.socket.send(data);
     }
-  }
-
-  /** Адресные команды: только соединения конкретного устройства. */
-  sendToDevice(deviceId: string, msg: WsOut): boolean {
-    const data = JSON.stringify(msg);
-    let sent = false;
-    for (const c of this.clients) {
-      if (c.deviceId === deviceId && c.socket.readyState === WebSocket.OPEN) {
-        c.socket.send(data);
-        sent = true;
-      }
-    }
-    return sent;
-  }
-
-  /** Устройства, у которых сейчас открыто соединение. */
-  onlineDeviceIds(): Set<string> {
-    const ids = new Set<string>();
-    for (const c of this.clients) {
-      if (c.deviceId && !c.loopback) ids.add(c.deviceId);
-    }
-    return ids;
-  }
-
-  /** Устройства, которые прямо сейчас показывают сцену (role=stage). */
-  stageDeviceIds(): Set<string> {
-    const ids = new Set<string>();
-    for (const c of this.clients) {
-      if (c.deviceId && !c.loopback && c.role === 'stage') ids.add(c.deviceId);
-    }
-    return ids;
   }
 
   closeAll(): void {

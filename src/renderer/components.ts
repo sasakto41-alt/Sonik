@@ -199,14 +199,12 @@ function renderQueue(): void {
   }).catch(() => {});
 }
 
-/** Индикатор соединения в шапке. */
-export function updateConnStatus(connected: boolean, isDesktop: boolean): void {
+/** Индикатор состояния в шапке: маленькая точка (зелёная — ок, жёлтая — сбой). */
+export function updateConnStatus(connected: boolean, _isDesktop: boolean): void {
   const root = el<HTMLElement>('#conn-status');
   root.classList.toggle('ok', connected);
   root.classList.toggle('bad', !connected);
-  el<HTMLElement>('#conn-text').textContent = connected
-    ? (isDesktop ? 'Локальный режим' : 'Подключено')
-    : 'Нет соединения';
+  root.title = connected ? '' : 'Внутренний сбой — восстановление автоматически';
 }
 
 export function coverImg(track: Track): HTMLElement {
